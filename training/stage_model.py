@@ -136,7 +136,7 @@ def print_info(artifact: Artifact, run=None) -> None:
 
 
 def get_checkpoint_metadata(run, checkpoint):
-    config = run.config
+    config = run.bert_config
     out = {"config": config}
     try:
         ckpt_filename = checkpoint.metadata["original_filename"]

@@ -3,7 +3,7 @@ import json
 
 import torch
 
-from core.utils import PreprocessingConfig, serve_request, download_url, chain_functions
+from core.utils import PreprocessingConfig, serve_request, download_url, chain_functions, TrainingConfig
 
 # model = VAE.load('mickjagger19/Remixer/vae:v1')
 pipeline = VAE().to(device=torch.device("cuda"))
@@ -25,7 +25,7 @@ def handler(event, _context):
 
     print("INFO loading audios complete")
 
-    output, audio, img = serve_request(genre, content, style)
+    output, audio, img = serve_request(TrainingConfig(), genre, content, style, pipeline=pipeline)
 
     print("INFO inference complete")
     return {"audio": audio}

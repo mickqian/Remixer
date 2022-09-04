@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing import *
 from urllib.request import urlretrieve
 
-import librosa
 import torch
 from tqdm import tqdm
 
@@ -15,17 +14,8 @@ from constants import *
 counter_dict = collections.defaultdict(int)
 
 
-@dataclass
-class PreprocessingConfig:
-    sr: Optional[float] = 22050
-    mono = False
-    n_fft = 2048
-    input_height = 16
-    input_width = 600
-    n_mels = 128
-    hop_length = 32
-    # time series count
-    T = 30
+def model_param(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 def get_workers():
@@ -50,49 +40,11 @@ def get_workers():
     return None
 
 
-@dataclass
-class TrainingConfig:
-
-    train_batch_size = 20
-    norm_nums_groups = 1
-    eval_batch_size = 2  # how many images to sample during evaluation
-    num_epochs = 1
-    vae_in_channels = 1
-    num_attention_heads = 2
-    accelerator = 'cuda'
-    num_workers = get_workers()
-    on_gpu = bool(accelerator == "cuda")
-    gradient_accumulation_steps = 1
-    guidance_scale = 1.0
-    latent_channels = 4
-    preprocessing: PreprocessingConfig = PreprocessingConfig()
-    attention_head_dim = 2
-    learning_rate = 1e-4
-
-    latent_width = 646
-    lr_warmup_steps = 500
-    num_inference_steps = 1000
-    save_image_epochs = 10
-    save_model_epochs = 1
-    mixed_precision = 'no'  # `no` for float32, `fp16` for automatic mixed precision
-    output_dir = ROOT_DIR / "training" / "out"  # the model namy locally and on the HF Hub
-    push_to_hub = True  # whether to upload the saved model to the HF Hub
-    hub_private_repo = False
-    overwrite_output_dir = True  # overwrite the old model when re-running the notebook
-    seed = SEED
-    ratios = [0.6, 0.2, 0.2]
-    device = torch.device(accelerator)
-
-    genres = constants.GENRES
-
-    genre2Id = {genre: id for id, genre in enumerate(set(genres))}
-
-
 def load_model(model_object, file_name="model_epoch_0.pth", file_path=None):
     import os
     name = model_object.__class__.__name__
     # load from wandb, whatever
-    if not file_name and not file_path:
+    if not file_name and file_path is None:
         import wandb
         name = f'{name}:latest'
         artifact: wandb.Artifact = wandb.use_artifact(name)
@@ -100,18 +52,19 @@ def load_model(model_object, file_name="model_epoch_0.pth", file_path=None):
         model_path = str(path.path)
         if not os.path.exists(model_path):
             path.download()
-    elif file_name and not file_path:
+    elif file_name and file_path is None:
         base = ROOT_DIR / "training" / "artifacts" / f"{name}:v1" / file_name
         model_path = str(base)
     else:
         model_path = file_path
 
-    print(f'loading {model_path}')
-    model_object.load_state_dict(torch.load(model_path))
+    if model_path:
+        print(f'loading {model_path}')
+        model_object.load_state_dict(torch.load(model_path))
     return model_object
 
 
-def serve_request(genre: str, content: Union[int, np.array], style: Union[int, np.array], pipeline):
+def serve_request(config, genre: str, content: Union[int, np.array], style: Union[int, np.array], pipeline):
     if genre and style:
         print("At most one style can be chosen. Currently two. Try removing one")
         return None
@@ -121,7 +74,7 @@ def serve_request(genre: str, content: Union[int, np.array], style: Union[int, n
 
     if not content:
         # perform random generation from genre
-        output, audio, image = pipeline.generate_audio(genre)
+        output, audio, image = pipeline.generate_audio([genre], config=config)[0]
         return output, audio, image
 
     if style and content:
@@ -156,44 +109,89 @@ def download_url(url, filename=None):
         return path
 
 
-def feature_to_image(log_S, config: PreprocessingConfig):
-    fig, ax = plt.subplots(figsize=(10, 4))
-    librosa.display.specshow(log_S, sr=config.sr, x_axis='time', y_axis='mel', ax=ax)
-    ax.set_title('Mel Spectrogram')
-    ax.colorbar(format='%+02.0f dB')
-
-    # 将Matplotlib绘制的图像保存到内存中的字节缓冲区
-    buf = BytesIO()
-    plt.savefig(buf, format='png')
-    plt.close(fig)
-    buf.seek(0)
-
-    # 使用PIL从内存中的字节缓冲区创建Image对象
-    img = Image.open(buf)
-    buf.close()
-    return img
-
-
-def feature_to_audio(f, name, config: PreprocessingConfig):
-    from .data.codes import mel_codec
-    audio_reconstructed = mel_codec.decode(f)
-
-    import soundfile as sf
-    # Save the reconstructed audio
-    path = f'{name}.wav'
-    sf.write_wav(path, audio_reconstructed, sr=config.sr)
-    print(f"audio file saved to: {path}")
-    return audio_reconstructed
-
-
 def get_sample_file_path(genre, config, epoch=None):
-    test_dir = os.path.join(config.output_dir, "samples")
+    test_dir = os.path.join(OUTPUT_DIR, "samples")
     os.makedirs(test_dir, exist_ok=True)
-    # Save the images
     if epoch:
-        file_name = f"{test_dir}/{genre}_{epoch:04d}.png"
+        file_name = f"{test_dir}/{genre}_{epoch:04d}"
     else:
-        counter_dict[genre] += 1
-        cnt = counter_dict[genre]
-        file_name = f"{test_dir}/{genre}_{cnt}.png"
+        cnt = len(os.listdir(test_dir))
+        file_name = f"{test_dir}/{genre}_{cnt}"
     return file_name
+
+
+@dataclass
+class PreprocessingConfig:
+    sr = 22050
+    mono = False
+    n_fft = 2048
+    input_height = 16
+    input_width = 600
+    n_mels = 128
+    hop_length = 32
+    # time series count
+    T = 20
+    clipped_frames = 1290
+    clipped_samples = sr * T
+
+
+@dataclass
+class TrainingConfig:
+    train_batch_size = 20
+    eval_batch_size = 2  # how many images to sample during evaluation
+    num_epochs = 1
+
+    ## VAE
+    scaling_factor = 0.18215
+    vae_in_channels = 1
+    # 1
+    vae_out_channels = 1
+    layers_per_block = 4
+    latent_channels = 8
+    vae_learning_rate = 1e-4
+    down_block_types = [
+        "DownEncoderBlock2D",
+        "DownEncoderBlock2D",
+        "DownEncoderBlock2D",
+    ]
+    up_block_types = [
+        "UpDecoderBlock2D",
+        "UpDecoderBlock2D",
+        "UpDecoderBlock2D"
+    ]
+    block_out_channels = [
+        64,
+        128,
+        128,
+    ]
+
+    ## Transformer
+    num_attention_heads = 16
+    attention_head_dim = 128
+    latent_width = 646
+    norm_nums_groups = 2
+    num_layers = 2
+    transformer_learning_rate = 1e-4
+
+    accelerator = 'cuda'
+    num_workers = get_workers()
+    on_gpu = bool(accelerator == "cuda")
+    gradient_accumulation_steps = 1
+    guidance_scale = 1.0
+    preprocessing: PreprocessingConfig = PreprocessingConfig()
+    lr_warmup_steps = 500
+    num_inference_steps = 999
+    save_image_epochs = 10
+    save_model_epochs = 3
+    mixed_precision = 'no'  # `no` for float32, `fp16` for automatic mixed precision
+    output_dir = ROOT_DIR / "training" / "out"  # the model namy locally and on the HF Hub
+    push_to_hub = True  # whether to upload the saved model to the HF Hub
+    hub_private_repo = False
+    overwrite_output_dir = True  # overwrite the old model when re-running the notebook
+    seed = SEED
+    ratios = [0.6, 0.2, 0.2]
+    device = torch.device(accelerator)
+
+    genres = constants.GENRES
+    codec = None
+    genre2Id = {genre: id for id, genre in enumerate(set(genres))}

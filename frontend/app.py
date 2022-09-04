@@ -11,6 +11,7 @@ import constants
 from constants import ROOT_DIR, GENRES
 from core import utils
 from core.models.VAE import build_pipeline, PipelineOrPaths
+from core.utils import TrainingConfig
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # do not use GPU
 
@@ -100,7 +101,7 @@ class PredictorBackend:
             return self._predict_from_endpoint(genre, content, style)
 
         # local inference
-        output, audio, img = utils.serve_request(genre, content, style)
+        output, audio, img = utils.serve_request(TrainingConfig(), genre, content, style)
 
         return audio
 

@@ -4,7 +4,7 @@ import kubeflow
 from kfp.dsl.component_factory import create_component_from_func
 
 from training import *
-from training.train import *
+from training.train_remixer import *
 from core.utils import *
 
 
@@ -12,7 +12,7 @@ from core.utils import *
 @create_component_from_func
 def prepare(dataset_paths, config: TrainingConfig):
     train_dl, val_dl, test_dl = prepare_dataloaders(dataset_paths, config.ratios, config.train_batch_size)
-    models = prepare_models(config, len(train_dl))
+    models = build_models(config, len(train_dl))
     return [train_dl, val_dl, test_dl], models
 
 
