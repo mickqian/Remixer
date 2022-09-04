@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+
+[tool.flake8]  # configured in .flake8
+[tool.darglint]  # configured in .flake8
+
+
+[tool.setuptools]
+py-modules = []
+
+
+[tool.setuptools.packages.find]
+where = ["."]  # list of folders that contain the packages (["."] by default)
+include = ["<package name>"]  # package names should match these glob patterns (["*"] by default)
+exclude = []  # exclude packages matching these glob patterns (empty by default)
+namespaces = false  # to disable scanning PEP 420 namespaces (true by default)
+
+
+[tool.black]
+line-length = 120
+target-version = ["py37"]
+
+[tool.mypy]
+ignore_missing_imports = true
+exclude = ["training/logs"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks a test as slow (deselect with '-m \"not slow\"']",
+    "data: marks a test as dependent on a data download (deselect with '-m \"not data\"')"
+]
+addopts = "--cov train --cov text_recognizer --cov-branch --doctest-modules --ignore training/logs -m 'not data' --ignore-glob **/bootstrap.py"
+
+
+[project]
+name = "remixer"
+#version = "0.0.1"
+description = "remixer"
+dynamic = ["version"]
+requires-python = ">=3.7.2"
+
