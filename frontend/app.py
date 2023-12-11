@@ -54,6 +54,8 @@ def make_frontend(fn: CALLBACK_TYPE, flagging: bool = False):
             gr.components.Dropdown(choices=GENRES, value='blues', label='Genre', type="value"),
             gr.components.Audio(label="Content"),
             gr.components.Audio(label="Style"),
+            gr.components.Textbox(placeholder="Separated by comma. e.g.: 'F, Dm, bB, C'", label="Chord Progression",
+                                  show_label=True),
         ],
         title="Remixer",
         thumbnail=FAVICON_STR,
@@ -96,16 +98,16 @@ class PredictorBackend:
 
         self._predict = self._predict_from_endpoint
 
-    def run(self, genre: str, content: Tuple[int, np.array], style: Tuple[int, np.array]):
+    def run(self, genre: str, content: Tuple[int, np.array], style: Tuple[int, np.array], progression):
         if self.url:
-            return self._predict_from_endpoint(genre, content, style)
+            return self._predict_from_endpoint(genre, content, style, progression)
 
         # local inference
         output, audio, img = utils.serve_request(TrainingConfig(), genre, content, style)
 
         return audio
 
-    def _predict_from_endpoint(self, genre: str, content: Tuple[int, np.array], style: Tuple[int, np.array]):
+    def _predict_from_endpoint(self, genre: str, content: Tuple[int, np.array], style: Tuple[int, np.array], progression):
         """Send parameters to an endpoint that accepts JSON and return the audio.
         """
         import json, requests
@@ -154,5 +156,4 @@ def deploy(pipeline: PipelineOrPaths):
 
 
 if __name__ == "__main__":
-    constants.speedup()
     deploy(None)

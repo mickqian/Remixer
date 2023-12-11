@@ -43,10 +43,12 @@ def get_workers():
 def load_model(model_object, file_name="model_epoch_0.pth", file_path=None):
     import os
     name = model_object.__class__.__name__
+
     # load from wandb, whatever
     if not file_name and file_path is None:
         import wandb
         name = f'{name}:latest'
+        wandb.login()
         artifact: wandb.Artifact = wandb.use_artifact(name)
         path = artifact.get_path(file_name)
         model_path = str(path.path)
@@ -60,11 +62,17 @@ def load_model(model_object, file_name="model_epoch_0.pth", file_path=None):
 
     if model_path:
         print(f'loading {model_path}')
-        model_object.load_state_dict(torch.load(model_path))
+        state_dict = torch.load(model_path)
+        # consume_prefix_in_state_dict_if_present(state_dict)
+        model_object.load_state_dict(state_dict)
     return model_object
 
 
-def serve_request(config, genre: str, content: Union[int, np.array], style: Union[int, np.array], pipeline):
+def serve_request(config, genre: str, content: Union[int, np.array], style: Union[int, np.array], progression: str,
+                  pipeline):
+    if progression:
+        chords = progression.split(',')
+
     if genre and style:
         print("At most one style can be chosen. Currently two. Try removing one")
         return None

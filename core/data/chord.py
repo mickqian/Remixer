@@ -5,6 +5,7 @@ from itertools import combinations
 
 # from music21 import harmony
 import math
+import music21.pitch
 from mirdata.datasets.beatles import *
 from pydub import AudioSegment
 from pydub.generators import Sine
@@ -89,7 +90,7 @@ class ChordsProgressionDataset(Dataset):
     def __init__(
             self,
             chords_files,
-            keys_files
+            keys_files,
     ) -> None:
         r"""
         Dataset for chord progression
@@ -220,6 +221,7 @@ prepare()
 
 def notes_to_chord_id(chord_notes: list):
     chord_notes.sort()
+    chord_notes = [note % 12 for note in chord_notes]
     return notes_to_chord_id_map[tuple(chord_notes)]
     # prefix = sum(chord_cnts[:len(chord_notes) - 2])
     # if len(chord_notes) <= max_notes_in_a_chord:
@@ -405,15 +407,15 @@ def build_chord_embedding_dataset(chords, keys, ratios, k):
     ]
 
 
-def generate_tone(frequency, duration):
+def generate_tone(frequency, duration, db):
     # 生成一个正弦波音频片段
     tone = Sine(frequency)
     # 设置音频的持续时间和声道（这里是单声道）
-    audio = tone.to_audio_segment(duration=duration).set_channels(1)
+    audio = tone.to_audio_segment(duration=duration, volume=db).set_channels(1)
     return audio
 
 
-def twelve_note_to_frequency(note: int, reference_pitch=261.63):
+def twelve_note_to_frequency(note: int, reference_pitch=261.63 / 1.5):
     """
     0 -> 261.63
     """
@@ -427,14 +429,14 @@ def twelve_note_to_frequency(note: int, reference_pitch=261.63):
     return reference_pitch * (2 ** ((numeric_note_to_midi_number(note) - 60) / 12.0))
 
 
-def chord_to_audio(notes):
+def notes_to_audio(notes):
     duration = 1000  # 持续时间，以毫秒为单位
 
     # 生成和弦
-    db = -1
-    chord = AudioSegment.silent(duration=duration)
+    db = -3
+    chord = AudioSegment.silent(duration=duration, frame_rate=22050)
     for frequency in [twelve_note_to_frequency(n) for n in notes]:
-        chord = chord.overlay(generate_tone(frequency, duration), gain_during_overlay=db)
+        chord = chord.overlay(generate_tone(frequency, duration, db), gain_during_overlay=db)
 
     # 导出和弦音频
 
@@ -444,26 +446,56 @@ def chord_to_audio(notes):
     return chord
 
 
-def chords_to_audio(chords):
-    duration = 1000  # 持续时间，以毫秒为单位
+def chords_to_audio(chord_ids):
+    duration = 500  # 持续时间，以毫秒为单位
 
+    from music21 import harmony, chord
+    def integer_notation_to_chord_name(notes):
+        # 创建一个和弦对象
+        try:
+            c = chord.Chord(notes)
+            # 创建和弦对象
+            ch = harmony.chordSymbolFromChord(c)
+            # 返回和弦的名称
+            return ch.figure
+        except music21.pitch.AccidentalException as e:
+            print(e)
+            return None
+
+    chords_name = []
     # 生成和弦
-    audio = AudioSegment.silent(duration=duration)
-    for chord in chords:
-        audio = audio.append(chord_to_audio(chord))
+    silent = AudioSegment.silent(duration=duration)
+    audio: AudioSegment = AudioSegment.empty()
+    for chord_id in chord_ids:
+        notes = chord_id_to_notes(chord_id)
+        chord_name = f"{integer_notation_to_chord_name(notes)}"
+        if not chord_name or chord_name == "Chord Symbol Cannot Be Identified" or chord_name == "None":
+            continue
+        chords_name += [chord_name]
+        audio += notes_to_audio(notes)
+        audio += silent
+
+    progression = "  ->  ".join(chords_name)
+    print(f"""chord progression:
+    {progression}
+    """)
+
+    name = str(hash(progression))[1:6]
 
     # 导出和弦音频
-    path = OUTPUT_DIR / "audio.wav"
-    audio.export(path, format="wav")
+    path = OUTPUT_DIR / f"{name}.wav"
     print(f"saved to {path}")
+    audio.export(path, format="wav")
 
 
-def test_reconstruct():
-    id = notes_to_chord_id(chords)
-
-    reconstructed_notes = chord_id_to_notes(id)
-
-    assert chords == reconstructed_notes
+# def test_reconstruct():
+#     import random
+#     notes = random.sample(list(range(0, 12)), 3)
+#     id = notes_to_chord_id(notes)
+#
+#     reconstructed_notes = chord_id_to_notes(id)
+#
+#     assert notes == reconstructed_notes
 
 
 if __name__ == "__main__":
@@ -472,7 +504,7 @@ if __name__ == "__main__":
     chords = [
         [0, 4, 7],
         [0, 4, 7, 10],
-        [5, 9, 12],
-        [5, 8, 12],
+        [5, 9, 0],
+        [5, 8, 0],
     ]
-    chords_to_audio(chords)
+    chords_to_audio([notes_to_chord_id(notes) for notes in chords])

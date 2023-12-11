@@ -27,10 +27,13 @@ def audio_to_mel_spec(ys, config: PreprocessingConfig):
         shape = S.shape
         S = S[:min(config.input_height, shape[0]), :shape[1] // 4 * 4]
         S_db = librosa.power_to_db(S, ref=np.max)
-        y = librosa.util.normalize(S_db)
+        # y = librosa.util.normalize(S_db)
+        y = S_db
         y = y * 2 + 1.
         # add an axis for one-channel
         y = y[np.newaxis, :]
+
+        feature_to_image(y, title=f'{hash(y)[1:6]}.png')
 
         # log_S = librosa.power_to_db(S, ref=np.max)
         return y
@@ -67,6 +70,7 @@ def load_audio(path, config: PreprocessingConfig, keep_channel=False):
             print(y.shape)
         sub_array_size = config.clipped_samples
         sub_samples = np.split(y, range(sub_array_size, length, sub_array_size), axis=-1)
+        # return sub_samples[:1]
         return sub_samples[:1]
     except soundfile.LibsndfileError as e:
         print(e)
@@ -93,9 +97,10 @@ def feature_to_image(log_S, config: PreprocessingConfig = PreprocessingConfig(),
     from io import BytesIO
     # 将Matplotlib绘制的图像保存到内存中的字节缓冲区
     buf = BytesIO()
-    plt.savefig(buf, format='png')
+    plt.savefig(fname=buf, format='png')
     # plt.close(fig)
     buf.seek(0)
+    plt.imsave(fname=title)
 
     from PIL import Image
     # Use Pillow to open the image

@@ -3,6 +3,7 @@ import os
 from dataclasses import asdict
 
 import accelerate
+from accelerate.utils import DistributedDataParallelKwargs
 
 from constants import GENRES, WANDB_PROJECT_NAME, OUTPUT_DIR
 from core.models.VAE import build_pipeline
@@ -21,12 +22,14 @@ def make_grid(images, cols=4):
 
 
 def build_accelerator(config, accelerate_state=None, use_wandb=True, project_name=''):
+    kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     if use_wandb:
         accelerator = accelerate.Accelerator(
             # split_batches=True,
             mixed_precision=config.mixed_precision,
             gradient_accumulation_steps=config.gradient_accumulation_steps,
             log_with="wandb",
+            kwargs_handlers=[kwargs]
             # logging_dir=os.path.join(OUTPUT_DIR, "logs")
         )
     else:
@@ -34,6 +37,7 @@ def build_accelerator(config, accelerate_state=None, use_wandb=True, project_nam
             # split_batches=True,
             mixed_precision=config.mixed_precision,
             gradient_accumulation_steps=config.gradient_accumulation_steps,
+            kwargs_handlers=[kwargs]
             # logging_dir=os.path.join(OUTPUT_DIR, "logs")
         )
     if accelerate_state:
