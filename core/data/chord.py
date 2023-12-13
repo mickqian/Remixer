@@ -12,6 +12,7 @@ from pydub.generators import Sine
 
 from constants import *
 from core.data.utils import split_dataset
+from core.utils import get_file_name_from
 
 chord_freq = Counter()
 
@@ -480,7 +481,7 @@ def chords_to_audio(chord_ids):
     {progression}
     """)
 
-    name = str(hash(progression))[1:6]
+    name = get_file_name_from(progression)
 
     # 导出和弦音频
     path = OUTPUT_DIR / f"{name}.wav"

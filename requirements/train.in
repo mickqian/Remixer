@@ -6,6 +6,7 @@ accelerate
 torch
 mirdata
 lightning_fabric
+scikit-learn
 music21
 transformers
 audiocraft

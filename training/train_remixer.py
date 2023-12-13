@@ -12,7 +12,7 @@ from torch.functional import F
 from tqdm.auto import tqdm
 
 from core.data import *
-from core.models.VAE import VQGenerator, build_VAE
+from core.models.VAE import build_VAE, VQGenerator
 from core.utils import *
 from test_model import *
 
@@ -47,7 +47,6 @@ class Trainer:
         self.generator_path = generator_path
         self.accelerate_path = accelerate_path
 
-        self.vae = load_model(build_VAE(config), file_name=None, file_path=vae_path, )
         [train_dl, _val_dl, _test_dl] = self.prepare_dataloaders(dataset_paths, codec)
         self.train_dl = train_dl
 
@@ -55,10 +54,12 @@ class Trainer:
         r"""
         train a VAE
         """
-        model, optimizer, lr_scheduler = self.build_models(VQGenerator, len(self.train_dl),
-                                                           lr=self.config.vae_learning_rate)
 
-        self.generator = model
+        vae = load_model(build_VAE(self.config), file_name=None, file_path=self.vae_path, )
+
+        vae, optimizer, lr_scheduler = self.build_models(vae,
+                                                         lr=self.config.vae_learning_rate)
+
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
 
@@ -73,7 +74,7 @@ class Trainer:
         self.accelerator = accelerator
 
         # model AutoEncoderKL
-        model = accelerator.prepare(self.vae)
+        model = accelerator.prepare(vae)
         # model = model.module
         # inner = model.codec_model
         inner = model
@@ -89,6 +90,9 @@ class Trainer:
             run: wandb.sdk.wandb_run.Run = accelerator.get_tracker('wandb', unwrap=True)
             # print(run.__class__.__name__)
             run_name = run.name
+            wandb.watch(inner, log='all', log_freq=30,
+                        log_graph=False
+                        )
 
         global_step = 0
 
@@ -102,16 +106,16 @@ class Trainer:
         for epoch in range(config.num_epochs if is_train else 1):
 
             progress_bar = tqdm(total=len(dataloader), leave=True, position=0,
-                                disable=not accelerator.is_local_main_process)
+                                disable=not accelerator.is_local_main_process, ncols=100)
             progress_bar.set_description(f"Epoch {epoch}")
 
             for step, batch in enumerate(dataloader):
-                clean_images, (files, _ids) = batch
-                if accelerator.is_local_main_process and step == 0 and epoch % config.save_image_epochs == 0:
-                    # feature_to_image(clean_images[0, :].cpu().float().numpy(), PreprocessingConfig(), True)
-                    feature_to_image(clean_images[0, 0, :].cpu().float().numpy(), PreprocessingConfig(), True)
-
                 with accelerator.accumulate(model):
+                    clean_images, (files, _ids) = batch
+                    if accelerator.is_local_main_process and step == 0 and epoch % config.save_image_epochs == 0:
+                        # feature_to_image(clean_images[0, :].cpu().float().numpy(), PreprocessingConfig(), True)
+                        feature_to_image(clean_images[0, 0, :].cpu().float().numpy(), PreprocessingConfig(), True)
+
                     # inner = model.codec_model.to(device=accelerator.device)
                     inner: diffusers.AutoencoderKL = model.module
                     from diffusers.models.vae import DiagonalGaussianDistribution
@@ -141,14 +145,16 @@ class Trainer:
 
                     # reconstruction loss and regularization loss
                     kl_loss = 0.0001 * posterior.kl().mean()
+                    if dec.shape[3] < clean_images.shape[3]:
+                        clean_images = clean_images[:, :, :, :dec.shape[3]]
                     reconstruction_loss = torch.mean(F.mse_loss(clean_images, dec))
 
                     loss = reconstruction_loss + kl_loss
-                    if loss > 660:
-                        image = feature_to_image(clean_images[0, :], config=config.preprocessing)
-                        images = wandb.Image(image, caption="Spectrogram")
-                        wandb.log({"spectrogram": images})
-                        print(files)
+                    # if loss > 660:
+                    #     image = feature_to_image(clean_images[0, :], config=config.preprocessing)
+                    #     images = wandb.Image(image, caption="Spectrogram")
+                    #     wandb.log({"spectrogram": images})
+                    #     print(files)
                     if is_train:
                         accelerator.backward(loss)
                         if accelerator.sync_gradients:
@@ -166,11 +172,12 @@ class Trainer:
                     "kl_loss": kl,
                     "reconstruction_loss": reconstruction_loss,
                     "lr": lr_scheduler.get_last_lr()[0],
-                    "step": global_step
+                    "epoch": epoch + (step / len(dataloader)),
                 }
                 best_loss = min(best_loss, l)
-                progress_bar.set_postfix(**logs)
                 accelerator.log(logs, step=global_step)
+                logs.update({"step": global_step})
+                progress_bar.set_postfix(**logs)
                 global_step += 1
 
             # After each epoch you optionally sample some demo images with evaluate() and save the model
@@ -186,7 +193,7 @@ class Trainer:
 
         return best_loss
 
-    def train_diffusion(self):
+    def train_diffusion(self, is_train=True, class_inputs=True):
         r"""
              Main training loops.
 
@@ -195,26 +202,32 @@ class Trainer:
                      Whether class_inputs will be provided to the model. If not, styled audio will be passed to as encoder-hidden-state
              """
 
-        vae = self.vae.to(
-            device=accelerator.device)
-
+        vae = load_model(build_VAE(self.config), file_name=None, file_path=self.vae_path, )
+        generator = load_model(VQGenerator(self.config), file_name=None, file_path=self.generator_path, )
+        generator, optimizer, lr_scheduler = self.build_models(generator,
+                                                               lr=self.config.generator_learning_rate)
         config = self.config
 
         accelerator = build_accelerator(self.config, accelerate_state=self.accelerate_path, use_wandb=True,
                                         project_name="Generator")
 
         # Prepare everything
-        model = accelerator.prepare(self.generator)
+        model = accelerator.prepare(generator)
 
         # enabled when FSDP
-        optimizer, dataloader, lr_scheduler = accelerator.prepare(
-            self.optimizer, self.dataloader, self.lr_scheduler
+        optimizer, dataloader, lr_scheduler, vae = accelerator.prepare(
+            optimizer, self.train_dl, lr_scheduler, vae
         )
-        run_name = "random"
+        inner = model.module
+        noise_scheduler = inner.scheduler
+
         if accelerator.is_main_process:
             run: wandb.sdk.wandb_run.Run = accelerator.get_tracker('wandb', unwrap=True)
             # print(run.__class__.__name__)
             run_name = run.name
+            wandb.watch(inner, log='all', log_freq=30,
+                        log_graph=False
+                        )
 
         losses = []
         global_step = 0
@@ -223,27 +236,28 @@ class Trainer:
         model_dtype = torch.float32
         vae = vae.to(dtype=vae_dtype)
         history_best_loss = math.inf
-        vae.requires_grad_(False)
+        vae = vae.module
+        vae.eval()
         if is_train:
-            model.train()
+            inner.train()
         else:
-            model.eval()
+            inner.eval()
 
         for epoch in range(config.num_epochs if is_train else 1):
             progress_bar = tqdm(total=len(dataloader), leave=True, position=0,
-                                disable=not accelerator.is_local_main_process)
+                                disable=not accelerator.is_local_main_process, ncols=100)
             progress_bar.set_description(f"Epoch {epoch}")
             for step, batch in enumerate(dataloader):
                 with accelerator.accumulate(model):
                     if class_inputs:
-                        clean_images, class_ids = batch
+                        clean_images, _files, class_ids = batch
                     else:
                         clean_images, styled_inputs = batch
 
                     bs = clean_images.shape[0]
 
                     # 1. Encode the clean images with VAE encoder
-                    clean_images = vae.bert_config.scaling_factor * clean_images
+                    clean_images = vae.config.scaling_factor * clean_images
                     clean_latents = vae.encode(clean_images.to(dtype=vae_dtype)).latent_dist.sample().to(
                         dtype=model_dtype)
                     # clean_latents = encode_output.latent_dist.mode()
@@ -252,7 +266,7 @@ class Trainer:
                     noise = torch.randn(clean_latents.shape, device=accelerator.device, dtype=torch.float32)
 
                     # 3. Sample a random timestep for each latent
-                    timesteps = torch.randint(0, noise_scheduler.bert_config.num_train_timesteps, (bs,),
+                    timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bs,),
                                               dtype=torch.int64).int()
 
                     # 4. Add noise to the clean images according to the noise magnitude at each timestep
@@ -262,7 +276,7 @@ class Trainer:
 
                     if not class_inputs:
                         # encode the styled_input
-                        styled_inputs = vae.bert_config.scaling_factor * styled_inputs
+                        styled_inputs = vae.config.scaling_factor * styled_inputs
                         styled_inputs = vae.encode(styled_inputs.to(dtype=vae_dtype)).latent_dist.sample().to(
                             dtype=model_dtype)
 
@@ -375,8 +389,9 @@ class Trainer:
         val_dss = []
         test_dss = []
         for dataset_path in dataset_paths:
-            dataset_datas = read_remixer_dataset(dataset_path, all=True)
-            tr_ds, val_ds, test_ds = build_remix_dataset(*dataset_datas, ratios=self.config.ratios,
+            files, ids, _genres = read_remixer_dataset(dataset_path, all=True)
+            tr_ds, val_ds, test_ds = build_remix_dataset(files=files, ids=ids
+                                                         , ratios=self.config.ratios,
                                                          codec=codec)
             tr_dss += [tr_ds]
             val_dss += [val_ds]
@@ -385,11 +400,14 @@ class Trainer:
         return [DataLoader(ConcatDataset(dss), self.config.train_batch_size, shuffle=True) for dss in
                 [tr_dss, val_dss, test_dss]]
 
-    def build_models(self, model_or_type, step_per_epoch, lr):
+    def build_models(self, model_or_type, lr, step_per_epoch=None, ):
         if isinstance(model_or_type, type):
             model = model_or_type(self.config)
         else:
             model = model_or_type
+
+        if step_per_epoch is None:
+            step_per_epoch = len(self.train_dl)
         # print(model.transformer)
         # torch.distributed.init_process_group(backend='nccl')
         #
@@ -420,7 +438,7 @@ if __name__ == "__main__":
     vae_config = TrainingConfig()
 
     # vae_config.train_batch_size = 11
-    vae_config.train_batch_size = 58
+    vae_config.train_batch_size = 150
 
     # torch.backends.cudnn.enabled = False
     vae_config.num_epochs = 10
@@ -432,7 +450,7 @@ if __name__ == "__main__":
 
     trainer = Trainer(
         # vae_path='/root/autodl-tmp/remixer/training/artifacts/stoic-universe-125/AutoencoderKL/model_epoch_3.pth',
-        vae_path='',
+        vae_path='/root/autodl-tmp/remixer/training/artifacts/different-vortex-184/AutoencoderKL/model_epoch_3.pth',
         generator_path='',
         config=vae_config,
         dataset_paths=['fma'],
@@ -441,4 +459,5 @@ if __name__ == "__main__":
     )
 
     accelerate_path = ''
-    trainer.train_vae(True, None)
+    # trainer.train_vae(True, None)
+    trainer.train_diffusion()

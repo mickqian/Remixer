@@ -128,6 +128,23 @@ def get_sample_file_path(genre, config, epoch=None):
     return file_name
 
 
+# Function to create a hash for a given number
+def get_file_name_from(data):
+    if isinstance(data, np.ndarray):
+        data = data.squeeze()
+        if len(data.shape) > 1:
+            data = data[:, -1]
+        if data.shape[0] > 5:
+            data = data[:5]
+        data = data.tolist()
+
+    data = data[:5]
+    s = str(hash(tuple(data)))
+
+    # Return the hexadecimal digest of the hash
+    return s[1:6]
+
+
 @dataclass
 class PreprocessingConfig:
     sr = 22050
@@ -138,7 +155,7 @@ class PreprocessingConfig:
     n_mels = 128
     hop_length = 32
     # time series count
-    T = 20
+    T = 10
     clipped_frames = 1290
     clipped_samples = sr * T
 
@@ -161,16 +178,22 @@ class TrainingConfig:
         "DownEncoderBlock2D",
         "DownEncoderBlock2D",
         "DownEncoderBlock2D",
+        "DownEncoderBlock2D",
+        "DownEncoderBlock2D",
     ]
     up_block_types = [
+        "UpDecoderBlock2D",
+        "UpDecoderBlock2D",
         "UpDecoderBlock2D",
         "UpDecoderBlock2D",
         "UpDecoderBlock2D"
     ]
     block_out_channels = [
+        32,
         64,
         128,
-        128,
+        256,
+        512,
     ]
 
     ## Transformer
@@ -179,7 +202,7 @@ class TrainingConfig:
     latent_width = 646
     norm_nums_groups = 2
     num_layers = 2
-    transformer_learning_rate = 1e-4
+    generator_learning_rate = 1e-4
 
     accelerator = 'cuda'
     num_workers = get_workers()

@@ -20,10 +20,11 @@ class RemixerDataset(Dataset):
 
         if len(data) != len(targets):
             raise ValueError("Data and targets must be of equal length")
-        if codec == None:
+        if codec is None:
             raise RuntimeError("empty codec provided")
         self.data = data
         self.targets = targets
+        print(f"{len(data)} data loaded")
         self.codec = codec
 
     def __len__(self) -> int:
@@ -86,26 +87,34 @@ excluded = ["electronic", "experimental", "hip-hop"]
 keywords = ["hip"]
 
 
-def read_remixer_dataset(root='', all=False):
+def read_remixer_dataset(root='', all=False, codec_type='audio'):
     files = []
     ids = []
+    genres = []
     for genre_dir in os.listdir(DATASET_PATH / root):
         if not genre_dir.startswith(".") and os.path.isdir(DATASET_PATH / root / genre_dir):
             genre = str(genre_dir).lower()
             if genre in excluded or any(keyword in genre for keyword in keywords):
                 print(f"skipping {genre_dir}")
                 continue
-            if genre not in genre2Id and not all:
-                continue
-                # genre2Id[genre] = len(genre2Id)
-            genre_id = genre2Id[genre] if genre in genre2Id else 0
-            cnt = 0
+            # if genre not in genre2Id and not all:
+            #     continue
+            # genre2Id[genre] = len(genre2Id)
+            if not genre in genre2Id:
+                genre2Id[genre] = len(genre2Id)
+            genre_id = genre2Id[genre]
+            prev_cnt = len(files)
             for audio in os.listdir(DATASET_PATH / root / genre_dir):
-                files += [str(DATASET_PATH / root / genre_dir / audio)]
-                cnt += 1
-            print(f"{genre}: {cnt} songs")
-            ids += [genre_id] * cnt
-    return np.array(files), np.array(ids)
+                if codec_type == 'audio' and (audio.endswith("mp3") or audio.endswith("wav")):
+                    files += [str(DATASET_PATH / root / genre_dir / audio)]
+                elif codec_type == 'mel_audio' and audio.endswith("png"):
+                    files += [str(DATASET_PATH / root / genre_dir / audio)]
+
+            inc = len(files) - prev_cnt
+            print(f"{genre}: {inc} songs")
+            ids += [genre_id] * inc
+            genres += [str(genre_dir)] * inc
+    return np.array(files), np.array(ids), np.array(genres)
 
 
 def build_remix_dataset(files: np.ndarray, ids: np.ndarray, ratios, codec=None):

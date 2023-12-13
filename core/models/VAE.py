@@ -23,7 +23,6 @@ def build_VAE(config: TrainingConfig):
                          latent_channels=config.latent_channels, layers_per_block=config.layers_per_block,
                          block_out_channels=config.block_out_channels, down_block_types=config.down_block_types,
                          up_block_types=config.up_block_types,
-
                          scaling_factor=config.scaling_factor
                          , norm_num_groups=4).to(dtype=torch.float32)
 

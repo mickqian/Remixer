@@ -331,14 +331,14 @@ class Trainer:
         embeddings = load_model(self.build_model("Embedding", self.config), self.embedding_path)
         generator.set_input_embeddings(embeddings)
         from transformers import GenerationConfig
-        # G
+        # Gmaj
         batch_size = 10
         motif = np.array([[notes_to_chord_id([7, 11, 2])] for _ in range(batch_size)])
         output = generator.generate(inputs=torch.tensor(motif),
-                                    generation_config=GenerationConfig(repetition_penalty=1.6,
+                                    generation_config=GenerationConfig(repetition_penalty=2.,
                                                                        # num_beams=2,
-                                                                       top_k=10,
-                                                                       num_beam_groups=100,
+                                                                       # top_k=10,
+                                                                       num_beam_groups=5,
                                                                        min_new_tokens=10,
                                                                        do_sample=True,
                                                                        eos_token_id=config.EOS_TOKEN,
