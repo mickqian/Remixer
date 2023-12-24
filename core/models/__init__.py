@@ -1,2 +1,1 @@
-"""Models for image captioning."""
-
+"""Models for music generation."""

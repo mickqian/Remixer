@@ -4,18 +4,13 @@ import os
 from torch.utils.data import Dataset
 
 from constants import *
-from core.utils import PreprocessingConfig
-from .codec import build_codec
-from .utils import *
+from core.data.codec import build_codec
+from core.data.utils import SequenceOrTensor, split_dataset
+from core.utils import *
 
 
 class RemixerDataset(Dataset):
-    def __init__(
-            self,
-            data: SequenceOrTensor,
-            targets: SequenceOrTensor,
-            codec=None
-    ) -> None:
+    def __init__(self, data: SequenceOrTensor, targets: SequenceOrTensor, codec=None) -> None:
         super().__init__()
 
         if len(data) != len(targets):
@@ -64,12 +59,12 @@ class RemixerLoader(torch.utils.data.DataLoader):
     """
 
     def __init__(
-            self,
-            data: SequenceOrTensor,
-            targets: SequenceOrTensor,
-            transform: Callable = None,
-            target_transform: Callable = None,
-            config: PreprocessingConfig = PreprocessingConfig(),
+        self,
+        data: SequenceOrTensor,
+        targets: SequenceOrTensor,
+        transform: Callable = None,
+        target_transform: Callable = None,
+        config: PreprocessingConfig = PreprocessingConfig(),
     ) -> None:
         super().__init__()
 
@@ -80,14 +75,14 @@ class RemixerLoader(torch.utils.data.DataLoader):
         self.target_transform = target_transform
         self.targets = targets
         self.config = config
-        self.codec = build_codec('mel', PreprocessingConfig())
+        self.codec = build_codec("mel", PreprocessingConfig())
 
 
 excluded = ["electronic", "experimental", "hip-hop"]
 keywords = ["hip"]
 
 
-def read_remixer_dataset(root='', all=False, codec_type='audio'):
+def read_remixer_dataset(root="", all=False, codec_type="audio"):
     files = []
     ids = []
     genres = []
@@ -105,13 +100,13 @@ def read_remixer_dataset(root='', all=False, codec_type='audio'):
             genre_id = genre2Id[genre]
             prev_cnt = len(files)
             for audio in os.listdir(DATASET_PATH / root / genre_dir):
-                if codec_type == 'audio' and (audio.endswith("mp3") or audio.endswith("wav")):
+                if codec_type == "audio" and (audio.endswith("mp3") or audio.endswith("wav")):
                     files += [str(DATASET_PATH / root / genre_dir / audio)]
-                elif codec_type == 'mel_audio' and audio.endswith("png"):
+                elif codec_type == "mel_audio" and audio.endswith("png"):
                     files += [str(DATASET_PATH / root / genre_dir / audio)]
 
             inc = len(files) - prev_cnt
-            print(f"{genre}: {inc} songs")
+            # print(f"{genre}: {inc} songs")
             ids += [genre_id] * inc
             genres += [str(genre_dir)] * inc
     return np.array(files), np.array(ids), np.array(genres)
@@ -122,5 +117,8 @@ def build_remix_dataset(files: np.ndarray, ids: np.ndarray, ratios, codec=None):
     # Use the indices to create the dataset splits
     return [
         RemixerDataset(dataset.dataset.data, dataset.dataset.targets, codec=codec)
-        for dataset in split_dataset(base_dataset, ratios, )
+        for dataset in split_dataset(
+            base_dataset,
+            ratios,
+        )
     ]

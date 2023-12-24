@@ -27,12 +27,14 @@ def train(config: TrainingConfig, data_loaders, models, accelerator):
 #     evaluate_model(config, val_dataloader, models)
 #
 
-@dsl.pipeline(
-    name='Training Pipeline',
-    description='A pipeline that trains vae'
-)
-def training_pipeline(model_dir: str, config: TrainingConfig, dataset_paths: List[str], validation_data_dir: str,
-                      ):
+
+@dsl.pipeline(name="Training Pipeline", description="A pipeline that trains vae")
+def training_pipeline(
+    model_dir: str,
+    config: TrainingConfig,
+    dataset_paths: List[str],
+    validation_data_dir: str,
+):
     init()
     dataloaders, models = prepare(dataset_paths=dataset_paths, config=config)
     accelerator = build_accelerator(config)

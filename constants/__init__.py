@@ -13,13 +13,14 @@ WANDB_PROJECT_NAME = "Remixer"
 SEED = 246
 
 # accelerator = 'cpu'
-GENRES = ['blues', 'folk', 'country', 'metal', 'hiphop', 'jazz', 'rock', 'pop', 'classical', 'disco', 'reggae']
+GENRES = ["blues", "folk", "country", "metal", "hiphop", "jazz", "rock", "pop", "classical", "disco", "reggae"]
 
 genre2Id = {genre: id for id, genre in enumerate(set(GENRES))}
 
 
 def seed_everything():
     import random
+
     np.random.seed(SEED)
     random.seed(SEED)
 
@@ -34,10 +35,10 @@ ROOT_DIR = Path(__file__).parents[1]
 
 # print(f'{ROOT_DIR}')
 
-MODULE_DIR = 'core'
+MODULE_DIR = "core"
 MODULE_PATH = ROOT_DIR / MODULE_DIR
 
-TEST_PATH = ROOT_DIR / 'test'
+TEST_PATH = ROOT_DIR / "test"
 
 DATASET_PATH = ROOT_DIR / "data" / "downloaded"
 

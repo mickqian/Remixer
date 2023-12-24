@@ -4,7 +4,6 @@ from locust import constant, HttpUser, task
 from constants import MODULE_DIR
 
 
-
 class RemixerUser(HttpUser):
     """
     Simulated AWS Lambda User
