@@ -33,5 +33,3 @@ class GTZAN(torch.utils.data.Dataset):
 
     def __getitem__(self, item):
         self.data_test.__getitem__()
-
-

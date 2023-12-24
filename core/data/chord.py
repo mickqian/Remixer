@@ -18,12 +18,7 @@ chord_freq = Counter()
 
 
 class ChordsEmbeddingDataset(Dataset):
-    def __init__(
-            self,
-            chords_file,
-            keys_file,
-            k: int
-    ) -> None:
+    def __init__(self, chords_file, keys_file, k: int) -> None:
         r"""
         Dataset for embedding.
 
@@ -71,10 +66,7 @@ class ChordsEmbeddingDataset(Dataset):
         self.data = chord_and_neighbor
 
     @classmethod
-    def with_data(
-            cls,
-            data
-    ):
+    def with_data(cls, data):
         dataset = cls([], [], 0)
         dataset.data = data
         return dataset
@@ -89,9 +81,9 @@ class ChordsEmbeddingDataset(Dataset):
 
 class ChordsProgressionDataset(Dataset):
     def __init__(
-            self,
-            chords_files,
-            keys_files,
+        self,
+        chords_files,
+        keys_files,
     ) -> None:
         r"""
         Dataset for chord progression
@@ -116,10 +108,7 @@ class ChordsProgressionDataset(Dataset):
         self.data = chord_sequences
 
     @classmethod
-    def with_data(
-            cls,
-            data
-    ):
+    def with_data(cls, data):
         dataset = cls([], [])
         dataset.data = data
         return dataset
@@ -141,23 +130,23 @@ notes_to_chord_id_map = collections.defaultdict(int)
 chord_id_to_notes_list = []
 
 numeric_note_to_int_map = {
-    '1': 0,
-    '2': 2,
-    '3': 4,
-    '4': 5,
-    '5': 7,
-    '6': 9,
-    '7': 11,
+    "1": 0,
+    "2": 2,
+    "3": 4,
+    "4": 5,
+    "5": 7,
+    "6": 9,
+    "7": 11,
 }
 
 alphabetic_note_to_int_map = {
-    'C': 0,
-    'D': 2,
-    'E': 4,
-    'F': 5,
-    'G': 7,
-    'A': 9,
-    'B': 11,
+    "C": 0,
+    "D": 2,
+    "E": 4,
+    "F": 5,
+    "G": 7,
+    "A": 9,
+    "B": 11,
 }
 
 
@@ -172,11 +161,11 @@ def numeric_note_to_int(note: str):
     # TODO: what's this '*' ?
     note = note.replace("*", "")
     diff = 0
-    diff_note = ''.join([c for c in note if not c.isnumeric()])
-    note = ''.join([c for c in note if c.isnumeric()])
-    if diff_note == 'b':
+    diff_note = "".join([c for c in note if not c.isnumeric()])
+    note = "".join([c for c in note if c.isnumeric()])
+    if diff_note == "b":
         diff = -1
-    elif diff_note == '#':
+    elif diff_note == "#":
         diff = 1
     elif diff_note:
         assert False
@@ -197,9 +186,9 @@ def alpha_note_to_int(note: str):
     if len(note) == 2:
         diff_note = note[1]
         note = note[0]
-        if diff_note == 'b':
+        if diff_note == "b":
             diff = -1
-        elif diff_note == '#':
+        elif diff_note == "#":
             diff = 1
         else:
             assert False
@@ -233,35 +222,36 @@ def notes_to_chord_id(chord_notes: list):
 
 class ChordsNormalizer:
     def __init__(self) -> None:
-        self.notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        self.notes = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
         # self.note_to_int = {note: i for i, note in enumerate(self.notes)}
         self.chord_structures = {
-            'maj': [0, 4, 7],
-            'min': [0, 3, 7],
-            'dim': [0, 3, 6],
-            'aug': [0, 4, 8],
-            '7': [0, 4, 7, 10],  # 属七和弦
-            'dom7': [0, 4, 7, 10],  # 属七和弦
-            'maj6': [0, 4, 7, 9],  # 大七和弦
-            'maj7': [0, 4, 7, 11],  # 大七和弦
-            'min7': [0, 3, 7, 10],  # 小七和弦
-            'minmaj7': [0, 3, 7, 11],  # 小大七和弦
-            'dim7': [0, 3, 6, 9],  # 减七和弦
-            'hdim7': [0, 3, 6, 10],  # 半减七和弦，也称为小七减五和弦
-            'min7b5': [0, 3, 6, 10],  # 小七减五和弦，与半减七和弦相同
-            'aug7': [0, 4, 8, 10],  # 增七和弦
-            'augmaj7': [0, 4, 8, 11],  # 增大七和弦
-            'sus2': [0, 2, 7],  # 挂二和弦
-            'sus4': [0, 5, 7],  # 挂四和弦
-            '7sus4': [0, 5, 7, 10],  # 属七挂四和弦
-            '6': [0, 4, 7, 9],  # 六和弦
-            'min6': [0, 3, 7, 9],  # 小六和弦
-            '9': [0, 4, 7, 10, 14],  # 九和弦
-            'maj9': [0, 4, 7, 11, 14],  # 大九和弦
-            'maj(9)': [0, 4, 7, 14],  # add 9
-            'min9': [0, 3, 7, 10, 14],  # 小九和弦
+            "maj": [0, 4, 7],
+            "min": [0, 3, 7],
+            "dim": [0, 3, 6],
+            "aug": [0, 4, 8],
+            "7": [0, 4, 7, 10],  # 属七和弦
+            "dom7": [0, 4, 7, 10],  # 属七和弦
+            "maj6": [0, 4, 7, 9],  # 大七和弦
+            "maj7": [0, 4, 7, 11],  # 大七和弦
+            "min7": [0, 3, 7, 10],  # 小七和弦
+            "minmaj7": [0, 3, 7, 11],  # 小大七和弦
+            "dim7": [0, 3, 6, 9],  # 减七和弦
+            "hdim7": [0, 3, 6, 10],  # 半减七和弦，也称为小七减五和弦
+            "min7b5": [0, 3, 6, 10],  # 小七减五和弦，与半减七和弦相同
+            "aug7": [0, 4, 8, 10],  # 增七和弦
+            "augmaj7": [0, 4, 8, 11],  # 增大七和弦
+            "sus2": [0, 2, 7],  # 挂二和弦
+            "sus4": [0, 5, 7],  # 挂四和弦
+            "7sus4": [0, 5, 7, 10],  # 属七挂四和弦
+            "6": [0, 4, 7, 9],  # 六和弦
+            "min6": [0, 3, 7, 9],  # 小六和弦
+            "9": [0, 4, 7, 10, 14],  # 九和弦
+            "maj9": [0, 4, 7, 11, 14],  # 大九和弦
+            "maj(9)": [0, 4, 7, 14],  # add 9
+            "min9": [0, 3, 7, 10, 14],  # 小九和弦
         }
         import itertools
+
         intervals = collections.defaultdict(lambda: collections.defaultdict(int))
         for a, b in itertools.combinations(range(len(self.notes)), 2):
             note_a, note_b = self.notes[a], self.notes[b]
@@ -273,20 +263,23 @@ class ChordsNormalizer:
         pass
 
     def normalize_chord_progression(self, key, sequence):
-
         def parse_chord(chord_name: str):
 
-            comma = int(chord_name.find(':'))
-            slash = int(chord_name.find('/'))
+            comma = int(chord_name.find(":"))
+            slash = int(chord_name.find("/"))
 
-            root = chord_name[:min(comma, slash) if min(comma, slash) > -1 else max(comma, slash)] if max(comma,
-                                                                                                          slash) != -1 else chord_name
-            chord_type = 'maj' if comma == -1 else (
-                chord_name[comma + 1:] if slash == -1 else chord_name[comma + 1:slash])
-            lowest_note = None if slash == -1 else chord_name[slash + 1:]
+            root = (
+                chord_name[: min(comma, slash) if min(comma, slash) > -1 else max(comma, slash)]
+                if max(comma, slash) != -1
+                else chord_name
+            )
+            chord_type = (
+                "maj" if comma == -1 else (chord_name[comma + 1 :] if slash == -1 else chord_name[comma + 1 : slash])
+            )
+            lowest_note = None if slash == -1 else chord_name[slash + 1 :]
 
             # 处理根音可能包含升降号的情况
-            if len(root) > 1 and (root[1] == '#' or root[1] == 'b'):
+            if len(root) > 1 and (root[1] == "#" or root[1] == "b"):
                 root_note = root[:2]
                 suffix = root[2:]
             else:
@@ -299,18 +292,18 @@ class ChordsNormalizer:
         def get_chord_notes(chord_type: str):
             if chord_type in self.chord_structures:
                 return self.chord_structures[chord_type][:]
-            if chord_type[0] == '(' and chord_type[-1] == ')':
+            if chord_type[0] == "(" and chord_type[-1] == ")":
                 chord_type = chord_type[1:-1]
             else:
                 left = chord_type.find("(")
                 if left != -1 and chord_type[-1] == ")":
-                    added = chord_type[left + 1:-1]
+                    added = chord_type[left + 1 : -1]
 
-                    added = [numeric_note_to_int(add) for add in added.split(',')]
+                    added = [numeric_note_to_int(add) for add in added.split(",")]
                     return added + get_chord_notes(chord_type[:left])
                 raise RuntimeError(f"unrecognized chord type {chord_type}")
             # notes separated by ','
-            notes = [0] + [numeric_note_to_int(note) for note in chord_type.split(',')]
+            notes = [0] + [numeric_note_to_int(note) for note in chord_type.split(",")]
             return notes
 
         def get_absolute_chord_notes(root, chord_type, lowest_note):
@@ -319,7 +312,7 @@ class ChordsNormalizer:
             chord_type: maj, min, aug, dim, (1,5)
             lowest_note: also transposed chord, which will be neglected
             """
-            if root == 'N':
+            if root == "N":
                 return []
 
             # 获取根音的索引
@@ -396,7 +389,10 @@ def build_chord_progression_dataset(chords, keys, ratios):
     base_dataset = ChordsProgressionDataset(chords, keys)
     return [
         ChordsProgressionDataset.with_data(dataset.dataset.data)
-        for dataset in split_dataset(base_dataset, ratios, )
+        for dataset in split_dataset(
+            base_dataset,
+            ratios,
+        )
     ]
 
 
@@ -404,7 +400,10 @@ def build_chord_embedding_dataset(chords, keys, ratios, k):
     base_dataset = ChordsEmbeddingDataset(chords, keys, k=k)
     return [
         ChordsEmbeddingDataset.with_data(dataset)
-        for dataset in split_dataset(base_dataset, ratios, )
+        for dataset in split_dataset(
+            base_dataset,
+            ratios,
+        )
     ]
 
 
@@ -451,6 +450,7 @@ def chords_to_audio(chord_ids):
     duration = 500  # 持续时间，以毫秒为单位
 
     from music21 import harmony, chord
+
     def integer_notation_to_chord_name(notes):
         # 创建一个和弦对象
         try:
@@ -477,9 +477,11 @@ def chords_to_audio(chord_ids):
         audio += silent
 
     progression = "  ->  ".join(chords_name)
-    print(f"""chord progression:
+    print(
+        f"""chord progression:
     {progression}
-    """)
+    """
+    )
 
     name = get_file_name_from(progression)
 

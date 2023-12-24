@@ -5,6 +5,8 @@ torchvision
 accelerate
 torch
 mirdata
+pytorch-fid
+pre-commit
 lightning_fabric
 scikit-learn
 music21

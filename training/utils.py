@@ -3,9 +3,10 @@ import os
 
 def init(init_cuda=True):
     import logging
+
     logger = logging.getLogger("wandb")
     logger.setLevel(logging.INFO)
-    os.environ['WANDB_HTTP_TIMEOUT'] = "5"
+    os.environ["WANDB_HTTP_TIMEOUT"] = "5"
     # wandb.login()
     wandb.apis._disable_ssl()
     diffusers.training_utils.set_seed(SEED)

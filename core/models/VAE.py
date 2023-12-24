@@ -1,51 +1,92 @@
 from typing import List
 
 import numpy
-import torch.nn as nn
 from diffusers import DPMSolverMultistepScheduler, DDPMScheduler
-from diffusers.models import AutoencoderKL
+from diffusers import ModelMixin
+from diffusers.configuration_utils import ConfigMixin, register_to_config
+from diffusers.models import AutoencoderKL, ConsistencyDecoderVAE, VQModel
 from diffusers.pipelines import ImagePipelineOutput, DiffusionPipeline
 from diffusers.schedulers import KarrasDiffusionSchedulers
 from diffusers.utils.torch_utils import randn_tensor
 
-from core import utils
+from core.data.codec import *
 from core.utils import *
 
 
 def build_pipeline(vae, generator, scheduler_path, config):
-    pipeline = DiTPipeline(vae=vae, generator=generator, scheduler=scheduler_path, labels_to_id=genre2Id,
-                           config=config)
+    pipeline = DiTPipeline(vae=vae, generator=generator, scheduler=scheduler_path, labels_to_id=genre2Id, config=config)
     return pipeline
 
 
-def build_VAE(config: TrainingConfig):
-    return AutoencoderKL(in_channels=config.vae_in_channels, out_channels=config.vae_out_channels,
-                         latent_channels=config.latent_channels, layers_per_block=config.layers_per_block,
-                         block_out_channels=config.block_out_channels, down_block_types=config.down_block_types,
-                         up_block_types=config.up_block_types,
-                         scaling_factor=config.scaling_factor
-                         , norm_num_groups=4).to(dtype=torch.float32)
+def get_auto_encoder(config: TrainingConfig, s="vae"):
+    if s == "vae":
+        return AutoencoderKL(
+            in_channels=config.vae_in_channels,
+            out_channels=config.vae_out_channels,
+            latent_channels=config.latent_channels,
+            layers_per_block=config.layers_per_block,
+            block_out_channels=config.block_out_channels,
+            down_block_types=config.down_block_types,
+            up_block_types=config.up_block_types,
+            scaling_factor=config.scaling_factor,
+            act_fn=config.act_fn,
+            norm_num_groups=4,
+        ).to(dtype=torch.float32)
+    elif s == "consistent_vae":
+        return ConsistencyDecoderVAE(
+            encoder_in_channels=config.vae_in_channels,
+            # if double_z is enabled, latent channels = 2 * encoder channels
+            latent_channels=config.latent_channels,
+            encoder_layers_per_block=config.layers_per_block,
+            decoder_layers_per_block=config.layers_per_block,
+            encoder_act_fn=config.act_fn,
+            encoder_down_block_types=config.vq_down_block_types,
+            encoder_out_channels=config.latent_channels,
+            # decoder_block_out_channels=1,
+            decoder_up_block_types=config.vq_up_block_types,
+            scaling_factor=config.scaling_factor,
+        ).to(dtype=torch.float32)
+    elif s == "vq_vae":
+        return VQModel(
+            in_channels=config.vae_in_channels,
+            latent_channels=config.vq_latent_channels,
+            layers_per_block=config.vq_layers_per_block,
+            act_fn=config.act_fn,
+            up_block_types=config.up_block_types,
+            out_channels=config.out_channels,
+            down_block_types=config.down_block_types,
+            block_out_channels=config.block_out_channels,
+            num_vq_embeddings=config.num_vq_embeddings,
+            scaling_factor=config.scaling_factor,
+        ).to(dtype=torch.float32)
+
+    else:
+        raise Exception(s)
 
 
-class VQGenerator(nn.Module):
+class VQGenerator(ModelMixin, ConfigMixin):
     """A spectrogram sd generator, which composes of:
     1. A VQ-VAE model to encode the audio. Vector-Quantizer helps to capture the repetitive patterns in music, e.g. chord progression
     2. A Transformer with cross attention on
     original audio
     """
 
+    @register_to_config
     def __init__(self, config: TrainingConfig = None) -> None:
         super().__init__()
         if not config:
             config = TrainingConfig()
         from diffusers import Transformer2DModel
-        self.transformer: Transformer2DModel = Transformer2DModel(in_channels=config.latent_channels,
-                                                                  out_channels=config.latent_channels,
-                                                                  num_attention_heads=config.num_attention_heads,
-                                                                  attention_head_dim=config.attention_head_dim,
-                                                                  sample_size=config.latent_width,
-                                                                  norm_num_groups=config.norm_nums_groups,
-                                                                  num_layers=config.num_layers)
+
+        self.transformer: Transformer2DModel = Transformer2DModel(
+            in_channels=config.latent_channels,
+            out_channels=config.latent_channels,
+            num_attention_heads=config.num_attention_heads,
+            attention_head_dim=config.attention_head_dim,
+            sample_size=config.sample_size[1],
+            norm_num_groups=config.norm_nums_groups,
+            num_layers=config.generator_num_layers,
+        )
         self.guidance_scale = config.guidance_scale
         # self.scheduler = DPMSolverMultistepScheduler(num_train_timesteps=config.num_inference_steps)
         self.scheduler = DDPMScheduler(num_train_timesteps=config.num_inference_steps)
@@ -70,9 +111,7 @@ class VQGenerator(nn.Module):
         bs, height, width, channels = latent_model_input.shape
 
         if class_ids is not None and styled_inputs is not None:
-            raise ValueError(
-                "`Class_labels` and `style` can't be provided at the same time."
-            )
+            raise ValueError("`Class_labels` and `style` can't be provided at the same time.")
         if class_ids is not None:
             # if class_labels is provided
             class_ids = class_ids.clone().detach().reshape(-1)
@@ -148,18 +187,18 @@ class DiTPipeline(DiffusionPipeline):
     model_cpu_offload_seq = "transformer->vae"
 
     def __init__(
-            self,
-            generator: Union[VQGenerator, str],
-            vae: Union[AutoencoderKL, str],
-            scheduler: Union[KarrasDiffusionSchedulers, str],
-            labels_to_id: Optional[Dict[str, int]],
-            config: TrainingConfig,
+        self,
+        generator: Union[VQGenerator, str],
+        vae: Union[AutoencoderKL, str],
+        scheduler: Union[KarrasDiffusionSchedulers, str],
+        labels_to_id: Optional[Dict[str, int]],
+        config: TrainingConfig,
     ):
         super().__init__()
         if isinstance(generator, str):
             generator = load_model(VQGenerator(config), file_path=generator)
         if isinstance(vae, str):
-            vae = load_model(build_VAE(config), file_path=vae)
+            vae = load_model(get_auto_encoder(config), file_path=vae)
         if isinstance(scheduler, str):
             # scheduler = .from_pretrained(scheduler)
             scheduler = DDPMScheduler.from_pretrained(scheduler)
@@ -169,8 +208,14 @@ class DiTPipeline(DiffusionPipeline):
         # create a imagenet -> id dictionary for easier use
         self.labels_to_ids = labels_to_id
 
-    def generate_audio(self, genres: List[str] = None, desired_width=None, config: TrainingConfig = TrainingConfig(),
-                       count=1):
+    def generate_audio(
+        self,
+        codec,
+        genres: List[str] = None,
+        desired_width=None,
+        config: TrainingConfig = TrainingConfig(),
+        count=1,
+    ):
         """
         Generate a styled audio from specified genre
 
@@ -182,6 +227,7 @@ class DiTPipeline(DiffusionPipeline):
 
         if not genres:
             import random
+
             genres = random.sample(GENRES, count)
 
         class_ids = self.get_label_ids(genres)
@@ -192,14 +238,14 @@ class DiTPipeline(DiffusionPipeline):
                 generator=torch.manual_seed(config.seed),
                 num_inference_steps=config.num_inference_steps,
                 output_type=None,
-                output_shape=(config.preprocessing.input_height, desired_width)
+                # output_shape=(config.preprocessing.input_height, desired_width)
             )[0]
 
             feature = numpy.squeeze(feature)
             print(f"{feature.shape}")
-            file_name = utils.get_sample_file_path(genre, config)
-            return feature, utils.feature_to_audio(feature, file_name, config.preprocessing), utils.feature_to_image(
-                feature, config.preprocessing)
+            # file_name = utils.get_sample_file_path(genre, config)
+
+            return feature, codec.decode(feature), feature_to_image(feature, config.preprocessing, show=True)
 
         return [generate(class_id, genre) for class_id, genre in zip(class_ids, genres)]
 
@@ -247,15 +293,15 @@ class DiTPipeline(DiffusionPipeline):
 
     @torch.no_grad()
     def __call__(
-            self,
-            class_labels: List[int],
-            style_input: Optional[torch.Tensor] = None,
-            guidance_scale: float = 4.0,
-            generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
-            num_inference_steps: int = 50,
-            output_type: Optional[str] = "pil",
-            return_dict: bool = True,
-            output_shape: Tuple[int, int] = None
+        self,
+        class_labels: List[int],
+        style_input: Optional[torch.Tensor] = None,
+        guidance_scale: float = 4.0,
+        generator: Optional[Union[torch.Generator, List[torch.Generator]]] = None,
+        num_inference_steps: int = 50,
+        output_type: Optional[str] = "pil",
+        return_dict: bool = True,
+        output_shape: Tuple[int, int] = None,
     ) -> Union[ImagePipelineOutput, Tuple]:
         r"""
         The call function to the pipeline for generation.
@@ -277,30 +323,6 @@ class DiTPipeline(DiffusionPipeline):
             return_dict (`bool`, *optional*, defaults to `True`):
                 Whether or not to return a [`ImagePipelineOutput`] instead of a plain tuple.
 
-        Examples:
-
-        ```py
-        >>> from diffusers import DiTPipeline, DPMSolverMultistepScheduler
-        >>> import torch
-
-        >>> pipe = DiTPipeline.from_pretrained("facebook/DiT-XL-2-256", torch_dtype=torch.float16)
-        >>> pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.bert_config)
-        >>> pipe = pipe.to("cuda")
-
-        >>> # pick words from Imagenet class labels
-        >>> pipe.labels_to_ids  # to print all available words
-
-        >>> # pick words that exist in ImageNet
-        >>> words = ["white shark", "umbrella"]
-
-        >>> class_ids = pipe.get_label_ids(words)
-
-        >>> generator = torch.manual_seed(33)
-        >>> output = pipe(class_labels=class_ids, num_inference_steps=25, generator=generator)
-
-        >>> image = output.images[0]  # label 'white shark'
-        ```
-
         Returns:
             [`~pipelines.ImagePipelineOutput`] or `tuple`:
                 If `return_dict` is `True`, [`~pipelines.ImagePipelineOutput`] is returned, otherwise a `tuple` is
@@ -311,19 +333,16 @@ class DiTPipeline(DiffusionPipeline):
         if output_shape:
             height, width = output_shape[0], output_shape[1]
         else:
-            height = width = latent_size
+            height, width = self.generator.config.config.sample_size
         device = torch.device("cuda")
         transformer = self.generator.transformer
-        latent_channels = transformer.bert_config.in_channels
-        # latents = randn_tensor(
-        #     shape=(batch_size, latent_channels, height, width),
-        #     generator=generator,
-        #     device=device,
-        #     dtype=transformer.dtype,
-        # )
-        latent_model_input = self.prepare_latents(shape=(batch_size, latent_channels, height, width),
-                                                  generator=generator,
-                                                  device=device, dtype=transformer.dtype)
+        latent_channels = transformer.config.in_channels
+        latent_model_input = self.prepare_latents(
+            shape=(batch_size, latent_channels, height, width),
+            generator=generator,
+            device=device,
+            dtype=transformer.dtype,
+        )
         # print(f"{latents=}")
 
         # latent_model_input = torch.cat([latents] * 2).to(device=device) if guidance_scale > 1 else latents
@@ -369,7 +388,9 @@ class DiTPipeline(DiffusionPipeline):
                 timesteps = timesteps.expand(latent_model_input.shape[0])
                 # predict noise model_output
                 noise_pred = transformer(
-                    latent_model_input, timestep=timesteps, class_labels=class_labels_input,
+                    latent_model_input,
+                    timestep=timesteps,
+                    class_labels=class_labels_input,
                     encoder_hidden_states=style_input,
                 ).sample
 
@@ -386,7 +407,7 @@ class DiTPipeline(DiffusionPipeline):
                 #     noise_pred = torch.cat([eps, rest], dim=1)
 
                 # learned sigma
-                if transformer.bert_config.out_channels // 2 == latent_channels:
+                if transformer.config.out_channels // 2 == latent_channels:
                     model_output, _ = torch.split(noise_pred, latent_channels, dim=1)
                 else:
                     model_output = noise_pred
@@ -397,13 +418,13 @@ class DiTPipeline(DiffusionPipeline):
                 # displaying intermediate images
                 if i % 200 == 0:
                     # decode
-                    samples = 1 / self.vae.bert_config.scaling_factor * latent_model_input
+                    samples = 1 / self.vae.config.scaling_factor * latent_model_input
                     samples = self.vae.decode(samples).sample
                     samples = samples.cpu().permute(0, 2, 3, 1).float().numpy()
                     # print(f"{samples.shape}")
                     sample = samples.squeeze()
                     # sample = self.numpy_to_pil(samples)[0]
-                    _image = feature_to_image(sample, show=True, title=f'timestep {i}')
+                    _image = feature_to_image(sample, show=True, title=f"timestep {i}")
 
                 # progress_bar.update()
                 if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
@@ -416,21 +437,21 @@ class DiTPipeline(DiffusionPipeline):
         # else:
         latents = latent_model_input
 
-        latents = 1 / self.vae.bert_config.scaling_factor * latents
-        samples = self.vae.decode(latents).sample
+        latents = 1 / self.vae.config.scaling_factor * latents
+        sample = self.vae.decode(latents).sample.cpu().float().numpy()
 
         # samples = (samples / 2 + 0.5).clamp(0, 1)
 
         # we always cast to float32 as this does not cause significant overhead and is compatible with bfloat16
-        samples = samples.cpu().permute(0, 2, 3, 1).float().numpy()
+        # sample = sample.permute(0, 2, 3, 1)
 
         if output_type == "pil":
-            samples = self.numpy_to_pil(samples)
+            sample = self.numpy_to_pil(sample)
 
         if not return_dict:
-            return (samples,)
+            return (sample,)
 
-        return ImagePipelineOutput(images=samples)
+        return ImagePipelineOutput(images=sample)
 
 
 PipelineOrPaths = Union[DiTPipeline, Tuple[str, str]]
