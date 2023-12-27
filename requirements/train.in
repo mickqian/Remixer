@@ -1,12 +1,19 @@
-# -c prod.txt
-deeplake==3.0.0
+# deeplake==3.0.0
 python-dotenv
 diffusers
 torchvision
 accelerate
 torch
+mirdata
+pytorch-fid
+pre-commit
 lightning_fabric
+scikit-learn
+music21
+transformers
+audiocraft
 librosa
+tokenizers
 matplotlib
 # jupyter
 transformers

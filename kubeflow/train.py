@@ -4,7 +4,7 @@ import kubeflow
 from kfp.dsl.component_factory import create_component_from_func
 
 from training import *
-from training.train import *
+from training.train_remixer import *
 from core.utils import *
 
 
@@ -12,7 +12,7 @@ from core.utils import *
 @create_component_from_func
 def prepare(dataset_paths, config: TrainingConfig):
     train_dl, val_dl, test_dl = prepare_dataloaders(dataset_paths, config.ratios, config.train_batch_size)
-    models = prepare_models(config, len(train_dl))
+    models = build_models(config, len(train_dl))
     return [train_dl, val_dl, test_dl], models
 
 
@@ -27,12 +27,14 @@ def train(config: TrainingConfig, data_loaders, models, accelerator):
 #     evaluate_model(config, val_dataloader, models)
 #
 
-@dsl.pipeline(
-    name='Training Pipeline',
-    description='A pipeline that trains vae'
-)
-def training_pipeline(model_dir: str, config: TrainingConfig, dataset_paths: List[str], validation_data_dir: str,
-                      ):
+
+@dsl.pipeline(name="Training Pipeline", description="A pipeline that trains vae")
+def training_pipeline(
+    model_dir: str,
+    config: TrainingConfig,
+    dataset_paths: List[str],
+    validation_data_dir: str,
+):
     init()
     dataloaders, models = prepare(dataset_paths=dataset_paths, config=config)
     accelerator = build_accelerator(config)

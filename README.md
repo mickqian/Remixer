@@ -2,6 +2,8 @@
 
 ![demo](./frontend/assets/Model.jpg)
 
+WIP: this project is in progress
+
 ## Contents
 
 - [Remixer](#Remixer)
@@ -30,6 +32,7 @@ VQ-VAE is applied to capture the repetitive patterns in music, e.g. chord progre
 ### Styled Music Generation
 
 class_id of genre is provided to the transformer2D.
+
 
 $$
 L_{\text{reconstruction}} = \frac{1}{N} \sum_{i=1}^{N} \left\| x^{(i)} - \hat{x}^{(i)} \right\|^2

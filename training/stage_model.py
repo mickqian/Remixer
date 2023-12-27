@@ -60,7 +60,7 @@ def main(args):
 
     # otherwise, we'll need to download the weights, compile the model, and save it
     with wandb.init(
-            job_type="stage", project=args.to_project, dir=LOG_DIR
+        job_type="stage", project=args.to_project, dir=LOG_DIR
     ):  # log staging to W&B so prod and training are connected
         # find the model checkpoint and retrieve its artifact name and an api handle
         if args.run:
@@ -136,7 +136,7 @@ def print_info(artifact: Artifact, run=None) -> None:
 
 
 def get_checkpoint_metadata(run, checkpoint):
-    config = run.config
+    config = run.bert_config
     out = {"config": config}
     try:
         ckpt_filename = checkpoint.metadata["original_filename"]

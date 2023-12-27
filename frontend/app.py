@@ -11,6 +11,7 @@ import constants
 from constants import ROOT_DIR, GENRES
 from core import utils
 from core.models.VAE import build_pipeline, PipelineOrPaths
+from core.utils import TrainingConfig
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""  # do not use GPU
 
@@ -50,9 +51,12 @@ def make_frontend(fn: CALLBACK_TYPE, flagging: bool = False):
         fn=fn,  # which Python function are we interacting with?
         outputs=gr.components.Audio(),
         inputs=[
-            gr.components.Dropdown(choices=GENRES, value='blues', label='Genre', type="value"),
+            gr.components.Dropdown(choices=GENRES, value="blues", label="Genre", type="value"),
             gr.components.Audio(label="Content"),
             gr.components.Audio(label="Style"),
+            gr.components.Textbox(
+                placeholder="Separated by comma. e.g.: 'F, Dm, bB, C'", label="Chord Progression", show_label=True
+            ),
         ],
         title="Remixer",
         thumbnail=FAVICON_STR,
@@ -95,24 +99,29 @@ class PredictorBackend:
 
         self._predict = self._predict_from_endpoint
 
-    def run(self, genre: str, content: Tuple[int, np.array], style: Tuple[int, np.array]):
+    def run(self, genre: str, content: Tuple[int, np.array], style: Tuple[int, np.array], progression):
         if self.url:
-            return self._predict_from_endpoint(genre, content, style)
+            return self._predict_from_endpoint(genre, content, style, progression)
 
         # local inference
-        output, audio, img = utils.serve_request(genre, content, style)
+        output, audio, img = utils.serve_request(TrainingConfig(), genre, content, style)
 
         return audio
 
-    def _predict_from_endpoint(self, genre: str, content: Tuple[int, np.array], style: Tuple[int, np.array]):
-        """Send parameters to an endpoint that accepts JSON and return the audio.
-        """
+    def _predict_from_endpoint(
+        self, genre: str, content: Tuple[int, np.array], style: Tuple[int, np.array], progression
+    ):
+        """Send parameters to an endpoint that accepts JSON and return the audio."""
         import json, requests
-        headers = {'Content-Type': "application/json"}
-        payload = json.dumps({"genre": genre,
-                              "content": content,
-                              "style": style,
-                              })
+
+        headers = {"Content-Type": "application/json"}
+        payload = json.dumps(
+            {
+                "genre": genre,
+                "content": content,
+                "style": style,
+            }
+        )
         response = requests.post(self.url, data=payload, headers=headers)
         print(f"{response=}")
         print(f"{response.content=}")
@@ -121,10 +130,11 @@ class PredictorBackend:
         return audio
 
 
-def get_heading_from_markdown(markdown_text, keyword=''):
+def get_heading_from_markdown(markdown_text, keyword=""):
     import re
+
     # This regex will match headings from level 1 to 6 that exactly contain 'AA'
-    heading_regex = re.compile(fr'^(#{1, 6}) {keyword}$', re.MULTILINE)
+    heading_regex = re.compile(rf"^(#{1, 6}) {keyword}$", re.MULTILINE)
 
     # Search for the pattern in the markdown text
     match = heading_regex.search(markdown_text)
@@ -140,7 +150,7 @@ def _load_readme(with_logging=False):
 
 
 def deploy(pipeline: PipelineOrPaths):
-    os.environ['BACKEND_URL'] = "http://localhost:9000/2015-03-31/functions/function/invocations"
+    os.environ["BACKEND_URL"] = "http://localhost:9000/2015-03-31/functions/function/invocations"
     serverless_backend = PredictorBackend(use_url=True, pip=pipeline)
     frontend = make_frontend(serverless_backend.run, flagging=True)
     frontend.launch(
@@ -153,5 +163,4 @@ def deploy(pipeline: PipelineOrPaths):
 
 
 if __name__ == "__main__":
-    constants.speedup()
     deploy(None)

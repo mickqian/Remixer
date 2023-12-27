@@ -1,0 +1,74 @@
+# PIPELINE DEFINITION
+# Name: data-preparation-pipeline
+# Description: An example pipeline that processes data
+# Inputs:
+#    input_data_path: str
+#    output_data_path: str
+components:
+  comp-preprocess-data:
+    executorLabel: exec-preprocess-data
+    inputDefinitions:
+      parameters:
+        input_data:
+          parameterType: STRING
+        output_data:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-preprocess-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - preprocess_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.4.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef preprocess_data(input_data: str, output_data: str):\n    # \u8FD9\
+          \u91CC\u662F\u6570\u636E\u9884\u5904\u7406\u7684\u4EE3\u7801\n    pass\n\
+          \n"
+        image: python:3.7
+pipelineInfo:
+  description: An example pipeline that processes data
+  name: data-preparation-pipeline
+root:
+  dag:
+    tasks:
+      preprocess-data:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-preprocess-data
+        inputs:
+          parameters:
+            input_data:
+              componentInputParameter: input_data_path
+            output_data:
+              componentInputParameter: output_data_path
+        taskInfo:
+          name: preprocess-data
+  inputDefinitions:
+    parameters:
+      input_data_path:
+        parameterType: STRING
+      output_data_path:
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.4.0

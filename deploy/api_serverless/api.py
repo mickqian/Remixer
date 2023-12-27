@@ -3,7 +3,7 @@ import json
 
 import torch
 
-from core.utils import PreprocessingConfig, serve_request, download_url, chain_functions
+from core.utils import PreprocessingConfig, serve_request, download_url, chain_functions, TrainingConfig
 
 # model = VAE.load('mickjagger19/Remixer/vae:v1')
 pipeline = VAE().to(device=torch.device("cuda"))
@@ -20,12 +20,12 @@ def handler(event, _context):
 
     # if image is None:
     #     return {"statusCode": 400, "message": "neither image_url nor image found in event"}
-    content = _load_audio(event, 'content', config)
-    style = _load_audio(event, 'style', config)
+    content = _load_audio(event, "content", config)
+    style = _load_audio(event, "style", config)
 
     print("INFO loading audios complete")
 
-    output, audio, img = serve_request(genre, content, style)
+    output, audio, img = serve_request(TrainingConfig(), genre, content, style, pipeline=pipeline)
 
     print("INFO inference complete")
     return {"audio": audio}
@@ -35,6 +35,7 @@ def handler(event, _context):
 # genre: str
 # content:  url
 # original: url
+
 
 def _load_genre(event):
     if "genre" not in event:
