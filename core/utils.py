@@ -61,7 +61,7 @@ def load_model(model_object, file_path=None):
         model_path = file_path
 
     if model_path:
-        print(f"loading {model_path}")
+        print(f"loading {yel}{model_path}{res}")
         state_dict = torch.load(model_path)
         # consume_prefix_in_state_dict_if_present(state_dict)
         model_object.load_state_dict(state_dict)
@@ -155,7 +155,9 @@ class PreprocessingConfig:
     sr: int = 22050
     mono: bool = False
     n_fft: int = 2048
-    n_mels: int = 128
+    # n_mels: int = 128
+    n_mels: int = 256
+    power_to_db_ref = np.max
 
     # size of mel-spectrogram
     input_height: int = n_mels
@@ -224,97 +226,110 @@ class TrainingConfig:
     latent_channels: int = 12
     vq_latent_channels: int = 24
     vae_learning_rate: int = 1e-4
-    down_block_types: List[str] = field(
-        default_factory=lambda: [
-            # "DownEncoderBlock2D",
-            # "DownEncoderBlock2D",
-            # "AttnDownBlock2D",
-            # "DownEncoderBlock2D",
-            "AttnDownEncoderBlock2D",
-            # "DownEncoderBlock2D",
-            # "DownEncoderBlock2D",
-            "AttnDownEncoderBlock2D",
-            # "DownEncoderBlock2D",
-            # "SimpleCrossAttnDownBlock2D",
-            # "AttnSkipDownBlock2D",
-            # "KCrossAttnDownBlock2D",
-            # "CrossAttnDownBlock2D",
-        ]
+    down_block_types: Tuple[str] = field(
+        default_factory=lambda: tuple(
+            [
+                "DownEncoderBlock2D",
+                # "DownEncoderBlock2D",
+                # "AttnDownBlock2D",
+                # "DownEncoderBlock2D",
+                "AttnDownEncoderBlock2D",
+                # "DownEncoderBlock2D",
+                # "DownEncoderBlock2D",
+                "AttnDownEncoderBlock2D",
+                # "DownEncoderBlock2D",
+                # "SimpleCrossAttnDownBlock2D",
+                # "AttnSkipDownBlock2D",
+                # "KCrossAttnDownBlock2D",
+                # "CrossAttnDownBlock2D",
+            ]
+        )
     )
-    up_block_types: List[str] = field(
-        default_factory=lambda: [
-            "AttnUpDecoderBlock2D",
-            # "UpDecoderBlock2D",
-            # "UpDecoderBlock2D",
-            "AttnUpDecoderBlock2D",
-            # "UpDecoderBlock2D",
-            # "AttnUpBlock2D",
-            # "UpDecoderBlock2D",
-            # "UpDecoderBlock2D",
-            # "SimpleCrossAttnUpBlock2D"
-            # "AttnSkipUpBlock2D",
-            # "KCrossAttnUpBlock2D",
-            # "CrossAttnUpBlock2D",
-        ]
+    up_block_types: Tuple[str] = field(
+        default_factory=lambda: tuple(
+            [
+                "AttnUpDecoderBlock2D",
+                # "UpDecoderBlock2D",
+                # "UpDecoderBlock2D",
+                "AttnUpDecoderBlock2D",
+                "UpDecoderBlock2D",
+                # "AttnUpBlock2D",
+                # "UpDecoderBlock2D",
+                # "UpDecoderBlock2D",
+                # "SimpleCrossAttnUpBlock2D"
+                # "AttnSkipUpBlock2D",
+                # "KCrossAttnUpBlock2D",
+                # "CrossAttnUpBlock2D",
+            ]
+        )
+    )
+    block_out_channels: Tuple[int] = field(
+        default_factory=lambda: tuple(
+            [
+                32,
+                # 32,
+                32,
+                # 32,
+                # 128,
+                # 128,
+                128,
+                # 256,
+            ]
+        )
     )
 
-    vq_down_block_types: List[str] = field(
-        default_factory=lambda: [
-            # "DownEncoderBlock2D",
-            # "DownEncoderBlock2D",
-            # "AttnDownBlock2D",
-            # "DownEncoderBlock2D",
-            "AttnDownEncoderBlock2D",
-            "DownEncoderBlock2D",
-            # "DownEncoderBlock2D",
-            "AttnDownEncoderBlock2D",
-            "DownEncoderBlock2D",
-            # "SimpleCrossAttnDownBlock2D",
-            # "AttnSkipDownBlock2D",
-            # "KCrossAttnDownBlock2D",
-            # "CrossAttnDownBlock2D",
-        ]
+    vq_down_block_types: tuple[str] = field(
+        default_factory=lambda: tuple(
+            [
+                # "DownEncoderBlock2D",
+                # "DownEncoderBlock2D",
+                # "AttnDownBlock2D",
+                # "DownEncoderBlock2D",
+                "AttnDownEncoderBlock2D",
+                "DownEncoderBlock2D",
+                # "DownEncoderBlock2D",
+                "AttnDownEncoderBlock2D",
+                "DownEncoderBlock2D",
+                # "SimpleCrossAttnDownBlock2D",
+                # "AttnSkipDownBlock2D",
+                # "KCrossAttnDownBlock2D",
+                # "CrossAttnDownBlock2D",
+            ]
+        )
     )
-    vq_up_block_types: List[str] = field(
-        default_factory=lambda: [
-            "UpDecoderBlock2D",
-            "AttnUpDecoderBlock2D",
-            # "UpDecoderBlock2D",
-            "UpDecoderBlock2D",
-            "AttnUpDecoderBlock2D",
-            # "UpDecoderBlock2D",
-            # "AttnUpBlock2D",
-            # "UpDecoderBlock2D",
-            # "UpDecoderBlock2D",
-            # "SimpleCrossAttnUpBlock2D"
-            # "AttnSkipUpBlock2D",
-            # "KCrossAttnUpBlock2D",
-            # "CrossAttnUpBlock2D",
-        ]
+    vq_up_block_types: tuple[str] = field(
+        default_factory=lambda: tuple(
+            [
+                "UpDecoderBlock2D",
+                "AttnUpDecoderBlock2D",
+                # "UpDecoderBlock2D",
+                "UpDecoderBlock2D",
+                "AttnUpDecoderBlock2D",
+                # "UpDecoderBlock2D",
+                # "AttnUpBlock2D",
+                # "UpDecoderBlock2D",
+                # "UpDecoderBlock2D",
+                # "SimpleCrossAttnUpBlock2D"
+                # "AttnSkipUpBlock2D",
+                # "KCrossAttnUpBlock2D",
+                # "CrossAttnUpBlock2D",
+            ]
+        )
     )
-    block_out_channels: List[str] = field(
-        default_factory=lambda: [
-            # 32,
-            # 32,
-            32,
-            # 32,
-            # 128,
-            # 128,
-            128,
-            # 256,
-        ]
-    )
-    vq_block_out_channels: List[str] = field(
-        default_factory=lambda: [
-            # 32,
-            32,
-            32,
-            # 32,
-            # 128,
-            128,
-            128,
-            # 256,
-        ]
+
+    vq_block_out_channels: Tuple[int] = field(
+        default_factory=lambda: tuple(
+            [
+                # 32,
+                32,
+                32,
+                # 32,
+                # 128,
+                128,
+                128,
+                # 256,
+            ]
+        )
     )
 
     ## Transformer
@@ -336,7 +351,7 @@ class TrainingConfig:
 
     mixed_precision: str = "no"  # `no` for float32, `fp16` for automatic mixed precision
     output_dir: str = ROOT_DIR / "training" / "out"  # the model namy locally and on the HF Hub
-    push_to_hub: bool = True  # whether to upload the saved model to the HF Hub
+    push_to_hub: bool = False  # whether to upload the saved model to the HF Hub
     hub_private_repo: bool = False
     overwrite_output_dir: bool = True  # overwrite the old model when re-running the notebook
     seed: int = SEED

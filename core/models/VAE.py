@@ -223,7 +223,7 @@ class DiTPipeline(DiffusionPipeline):
             A reconstructed audio
         """
         if not desired_width:
-            desired_width = PreprocessingConfig().input_width
+            _desired_width = PreprocessingConfig().input_width
 
         if not genres:
             import random

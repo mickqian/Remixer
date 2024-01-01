@@ -9,7 +9,6 @@ from diffusers.optimization import get_cosine_schedule_with_warmup
 from torch.distributed.fsdp import FullyShardedDataParallel
 from torch.functional import F
 from torch.nn.parallel import DistributedDataParallel
-from torchvision.models import inception_v3
 from tqdm.auto import tqdm
 
 from core.data import *
@@ -63,7 +62,7 @@ class Trainer:
 
     def train_vae(
         self,
-        is_train: bool,
+        is_train: bool = True,
         _epoch_callback=None,
     ):
         r"""
@@ -77,8 +76,8 @@ class Trainer:
             config, accelerate_state=self.accelerate_path, use_wandb=True, project_name="VAE"
         )
 
-        inception_model = inception_v3(pretrained=True, transform_input=False)
-        inception_model.fc = torch.nn.Identity()  # 用于提取特征，而不是分类
+        # inception_model = inception_v3(pretrained=True, transform_input=False)
+        # inception_model.fc = torch.nn.Identity()  # 用于提取特征，而不是分类
 
         scaler = get_scaler(config.preprocessing.scale_method)
 
@@ -86,7 +85,7 @@ class Trainer:
 
         vae, optimizer, lr_scheduler = self.build_models(vae, lr=self.config.vae_learning_rate)
         name = vae.__class__.__name__
-        bandwidth = 3.0  # 1.5, 3.0, 6.0
+        _bandwidth = 3.0  # 1.5, 3.0, 6.0
         # self.vae = MultiBandDiffusion.get_mbd_24khz(bw=bandwidth)
         # self.vae = load_model(get_auto_encoder(config,self.vae), file_path=self.vae_path)
 
@@ -94,18 +93,17 @@ class Trainer:
         model = accelerator.prepare(vae)
         # model = model.module
         # inner = model.codec_model
-        inner = model
 
         # enabled when FSDP
-        optimizer, dataloader, lr_scheduler, inception_model = accelerator.prepare(
-            optimizer, self.train_dl, lr_scheduler, inception_model
-        )
+        optimizer, dataloader, lr_scheduler = accelerator.prepare(optimizer, self.train_dl, lr_scheduler)
 
         if accelerator.is_main_process:
             run: wandb.sdk.wandb_run.Run = accelerator.get_tracker("wandb", unwrap=True)
             # print(run.__class__.__name__)
             run_name = run.name
             wandb.watch(model, log="all", log_freq=30, log_graph=False)
+
+        print(f"scaler: {scaler}")
 
         global_step = 0
 
@@ -169,7 +167,6 @@ class Trainer:
                     else:
                         kl_loss_factor = 0.00001
                         kl_loss = kl_loss_factor * posterior.kl().mean()
-                        kl = kl_loss.detach().item()
                         loss += kl_loss
                     # if dec.shape[3] < clean_images.shape[3]:
                     #     clean_images = clean_images[:, :, :, :dec.shape[3]]
@@ -186,45 +183,66 @@ class Trainer:
                     #     wandb.log({"spectrogram": images})
                     #     print(files)
 
-                    # del clean_images, dec, x, posterior
+                    del dec, x
                     if is_train:
+                        if step % 15 == 0 and epoch % config.save_image_epochs == 0:
+                            inner.eval()
+
+                            if "VQ" in name:
+                                dec = inner.decode(z).sample
+                                pass
+                            else:
+                                # we should take the mode to test the reconstruction ability
+                                z = posterior.mode()[0:1, :]
+                                z = 1 / scaling_factor * z
+                                dec = inner.decode(z).sample
+                            reconstructed, clean_image = (
+                                dec[0, 0, :].cpu().detach().numpy(),
+                                clean_images[0, 0, :].cpu().detach().numpy(),
+                            )
+                            shape = reconstructed.shape
+                            if config.preprocessing.scale_method == "power":
+                                reconstructed, clean_image = reconstructed.flatten().reshape(
+                                    -1, 1
+                                ), clean_image.flatten().reshape(-1, 1)
+                            reconstructed, clean_image = scaler.inverse_transform(
+                                reconstructed
+                            ), scaler.inverse_transform(clean_image)
+
+                            if config.preprocessing.scale_method == "power":
+                                reconstructed, clean_image = (
+                                    reconstructed.reshape(shape),
+                                    clean_image.reshape(shape),
+                                )
+                            mse = ((clean_image - reconstructed) ** 2).mean()
+                            accelerator.log({"mse": mse}, step=global_step)
+                            # fid = calculate_fid_of_images(image, clean_image, inception_model)
+                            show_spec([clean_image, reconstructed], config.preprocessing, True, title=f"mse: {mse}")
+                            mel_to_audio(reconstructed, config.preprocessing)
+                            inner.train()
+
+                            artifact_name = f"model_epoch_{epoch}"
+                            self.save_model(
+                                accelerator=accelerator,
+                                models=[accelerator.unwrap_model(model) for model in [inner]],
+                                run_name=run_name,
+                                name=artifact_name,
+                            )
+                            del dec, clean_image, reconstructed
+
                         accelerator.backward(loss)
                         if accelerator.sync_gradients:
                             accelerator.clip_grad_norm_(inner.parameters(), 1.0)
                         optimizer.step()
                         lr_scheduler.step()
                         optimizer.zero_grad()
-                    if step % 15 == 0 and epoch % config.save_image_epochs == 0:
-                        inner.eval()
-
-                        # latents = posterior.mean()
-                        if "VQ" in name:
-                            dec = inner.decode(z).sample
-                            pass
-                        else:
-                            z = posterior.mode()
-                            z = 1 / scaling_factor * z
-                            # dec = inner.decode(z).sample
-                        image = scaler.inverse_transform(dec[0, 0, :].cpu().detach().numpy())
-                        clean_image = scaler.inverse_transform(clean_images[0, 0, :].cpu().detach().numpy())
-                        # fid = calculate_fid_of_images(image, clean_image, inception_model)
-                        show_spec([clean_image, image], config.preprocessing, True)
-                        inner.train()
-
-                        artifact_name = f"model_epoch_{epoch}"
-                        self.save_model(
-                            accelerator=accelerator,
-                            models=[accelerator.unwrap_model(model) for model in [model]],
-                            run_name=run_name,
-                            name=artifact_name,
-                        )
 
                 progress_bar.update(1)
-                l = loss.detach().item()
                 reconstruction_loss = reconstruction_loss.detach().item()
+                l = loss.detach().item()
                 logs = {
                     "loss": l,
-                    "kl_loss": kl,
+                    "kl_loss": kl_loss.detach().item(),
                     "reconstruction_loss": reconstruction_loss,
                     "lr": lr_scheduler.get_last_lr()[0],
                     "epoch": epoch + (step / len(dataloader)),
@@ -250,7 +268,7 @@ class Trainer:
         if not os.path.exists("scaler.joblib"):
             import joblib
 
-            joblib.dump(get_scaler(config.preprocessing.scale_method), "scaler.joblib")
+            joblib.dump(scaler, f"{config.preprocessing.scale_method}_scaler.joblib")
         accelerator.wait_for_everyone()
 
         return best_loss
@@ -262,7 +280,7 @@ class Trainer:
         from diffusers.utils.torch_utils import randn_tensor
 
         device = vae.device
-        height, width = config.sample_size
+        [height, width] = config.sample_size
         latent_channels = config.latent_channels
         z = randn_tensor((1, latent_channels, height, width), device=device)
         # z = z * scheduler.init_noise_sigma
@@ -329,7 +347,12 @@ class Trainer:
 
         for epoch in range(config.num_epochs if is_train else 1):
             progress_bar = tqdm(
-                total=len(dataloader), leave=True, position=0, disable=not accelerator.is_local_main_process, ncols=150
+                total=len(dataloader),
+                leave=True,
+                position=0,
+                disable=not accelerator.is_local_main_process,
+                ncols=150,
+                colour="green",
             )
             progress_bar.set_description(f"Epoch {epoch}")
             for step, batch in enumerate(dataloader):
@@ -487,7 +510,7 @@ class Trainer:
     def generate(self):
         device = torch.device("cuda")
         vae = load_model(
-            (self.config),
+            self.config,
             file_path=self.vae_path,
         ).to(device=device)
         generator = load_model(
@@ -495,7 +518,7 @@ class Trainer:
             file_path=self.generator_path,
         ).to(device=device)
         generator, optimizer, lr_scheduler = self.build_models(generator, self.config.generator_learning_rate)
-        config = self.config
+        _config = self.config
         self.evaluate_model(vae, generator, generator.scheduler)
 
     def prepare_dataloaders(self, dataset_paths, codec):
@@ -559,8 +582,8 @@ if __name__ == "__main__":
     vae_config = TrainingConfig()
 
     # vae_config.train_batch_size = 11
-    vae_config.train_batch_size = 9
-    vae_config.scaling_factor = 1
+    vae_config.train_batch_size = 7
+    vae_config.scaling_factor = 0.18215
     # vae_config.layers_per_block = 4
 
     # torch.backends.cudnn.enabled = False
@@ -568,13 +591,13 @@ if __name__ == "__main__":
     vae_config.vae_learning_rate = 1e-5
     vae_config.save_model_epochs = 2
     vae_config.save_image_epochs = 1
-    vae_config.preprocessing.scale_method = "min_max"
+    vae_config.preprocessing.scale_method = "power"
 
     from core.data.codec import *
 
     trainer = Trainer(
         # vae_path='/root/autodl-tmp/remixer/training/artifacts/silver-frost-416/VQModel/model_epoch_0.pth',
-        # vae_path='/root/autodl-tmp/remixer/training/artifacts/silver-wind-433/AutoencoderKL/model_epoch_0.pth',
+        # vae_path="/root/autodl-tmp/remixer/training/artifacts/devout-firebrand-505/AutoencoderKL/model_epoch_0.pth",
         # generator_path='/root/autodl-tmp/remixer/training/artifacts/major-waterfall-21/VQGenerator/model_epoch_1.pth',
         config=vae_config,
         dataset_paths=["fma"],

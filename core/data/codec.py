@@ -1,44 +1,49 @@
 # load file as time series
 import functools
-import os
 
 import audioread.exceptions
-import joblib
 import librosa
 import matplotlib.pyplot as plt
 import numpy as np
-import sklearn
+import sklearn.preprocessing
 import soundfile
 import torch
 import wandb
-from sklearn import preprocessing
 
-from constants import OUTPUT_DIR
+from constants import *
 from core.utils import PreprocessingConfig, get_file_name_from
 
-min_max_scaler = (
-    joblib.load("scaler.joblib")
-    if os.path.exists("scaler.joblib")
-    else sklearn.preprocessing.MinMaxScaler(feature_range=(0, 10))
-)
-standard_scaler = (
-    joblib.load("std_scaler.joblib") if os.path.exists("std_scaler.joblib") else sklearn.preprocessing.StandardScaler()
-)
-robust_scaler = (
-    joblib.load("robust_scaler.joblib")
-    if os.path.exists("robust_scaler.joblib")
-    else sklearn.preprocessing.StandardScaler()
-)
+
+def load_scaler(cls):
+    name = cls.__name__.lower()
+    import joblib, os
+
+    if os.path.exists(f"{name}"):
+        print(f"{blu} Loading {name}{res}")
+        return joblib.load(f"{name}")
+    else:
+        print(f"{blu} Initializing {name} scaler {res}")
+        return cls()
+
 
 scalers = {
-    "min_max": min_max_scaler,
-    "standard": standard_scaler,
-    "robust": robust_scaler,
+    "min_max": load_scaler(sklearn.preprocessing.MinMaxScaler),
+    "standard": load_scaler(sklearn.preprocessing.StandardScaler),
+    "robust": load_scaler(sklearn.preprocessing.RobustScaler),
+    "power": load_scaler(sklearn.preprocessing.PowerTransformer),
+    "normalizer": load_scaler(sklearn.preprocessing.Normalizer),
 }
 
 
 def get_scaler(s="standard"):
     return scalers[s]
+
+
+def dump_scaler(s):
+    name = s.__class__.__name__
+    import joblib
+
+    joblib.dump(s, f"{name}")
 
 
 def chain_functions(functions, X, config: PreprocessingConfig):
@@ -54,6 +59,8 @@ import math
 
 min_db = math.inf
 max_db = -math.inf
+
+accu = np.empty(0, np.float32)
 
 
 def audio_to_mel_spec(ys, config: PreprocessingConfig):
@@ -72,9 +79,17 @@ def audio_to_mel_spec(ys, config: PreprocessingConfig):
 
         # TODO: should be globally scaled
         # scale all bins together
+        scaler = get_scaler(config.scale_method)
         flattened = y.flatten().reshape(-1, 1)
-        get_scaler(config.scale_method).partial_fit(flattened)
-        y = get_scaler(config.scale_method).transform(flattened).reshape(y.shape)
+        accu = np.append(accu, flattened)
+        if config.scale_method == "power":
+            if not hasattr(scaler, "lambdas_"):
+                scaler.fit(flattened)
+        else:
+            scaler.partial_fit(flattened)
+        y = scaler.transform(flattened).reshape(y.shape)
+        # if config.scale_method == "power":
+        # prior: make sure the minimum >= 3.3, for activation have lower bounds >= 0.0
         # global min_db, max_db
         # min_db = min(min_db, np.min(y))
         # max_db = max(max_db, np.max(y))
@@ -94,30 +109,46 @@ def audio_to_mel_spec(ys, config: PreprocessingConfig):
 
 
 def load_mel(ys, config: PreprocessingConfig):
-    S = librosa.feature.melspectrogram(y=y, sr=config.sr, n_fft=config.n_fft, n_mels=config.n_mels, dtype=np.float32)
+    _S = librosa.feature.melspectrogram(y=y, sr=config.sr, n_fft=config.n_fft, n_mels=config.n_mels, dtype=np.float32)
 
     return [helper(y) for y in ys]
 
 
-def mel_to_audio(S, config: PreprocessingConfig):
-    import soundfile as sf
-
+def feature_to_audio(S, config: PreprocessingConfig):
     # S = S.astype(np.float32)
     # print(np.isnan(S).any())
     # Convert Mel-spectrogram to audio
-    from librosa.feature.inverse import mel_to_audio
 
     # import joblib
     # scaler = joblib.load('scaler.joblib')
-    scaler = get_scaler()
+    scaler = get_scaler(config.scale_method)
+    shape = S.shape
+    if config.scale_method == "power" or config.scale_method == "standard":
+        S = S.flatten().reshape(-1, 1)
     S = scaler.inverse_transform(S)
-    S_power = librosa.db_to_power(S)
-    y_reconstructed = mel_to_audio(S_power, sr=config.sr)
+    S = S.reshape(shape)
 
+    y_reconstructed = mel_to_audio(S, config)
+    return y_reconstructed
+
+
+def mel_to_audio(S_db, config: PreprocessingConfig):
+    import soundfile as sf, librosa
+
+    # ref_value = np.max(librosa.db_to_power(S_db, ref=1.0))
+    ref_value = 13
+    S_power = librosa.db_to_power(S_db, ref=ref_value)
+    import librosa.feature.inverse
+
+    try:
+        y_reconstructed = librosa.feature.inverse.mel_to_audio(S_power, sr=config.sr)
+    except librosa.util.exceptions.ParameterError as e:
+        pass
     # Save the reconstructed audio
     file_name = f"{get_file_name_from(y_reconstructed)}.mp3"
     path = OUTPUT_DIR / file_name
-    print(f"\nsaving to {path}")
+    print(f"\nsaving to {yel}{path}{res}")
+    wandb.log({file_name: wandb.Audio(y_reconstructed, sample_rate=config.sr)})
     sf.write(file=path, data=y_reconstructed, samplerate=int(config.sr))
     return y_reconstructed
 
@@ -165,7 +196,7 @@ def feature_to_image(log_S, config: PreprocessingConfig = PreprocessingConfig(),
     show_spec([log_S], config, show, [title])
 
 
-def show_spec(log_Ss, config: PreprocessingConfig = PreprocessingConfig(), show=False, titles=[], title=""):
+def show_spec(log_Ss, config: PreprocessingConfig = PreprocessingConfig(), show=False, save=False, titles=[], title=""):
     size = len(log_Ss)
     nrow = (size - 1) // 2 + 1
     fig, axes = plt.subplots(nrow, 2)
@@ -173,18 +204,21 @@ def show_spec(log_Ss, config: PreprocessingConfig = PreprocessingConfig(), show=
 
     if not titles:
         titles = [""] * size
-    for log_S, ax, title in zip(log_Ss, axes, titles):
-        if not title:
-            title = get_file_name_from(log_S)
+    for log_S, ax, spec_title in zip(log_Ss, axes, titles):
+        if not spec_title:
+            spec_title = get_file_name_from(log_S)
         librosa.display.specshow(log_S, sr=config.sr, x_axis="time", y_axis="mel", fmax=8000, ax=ax)
-        ax.set_title(f"Mel Spectrogram of: {title}")
+        ax.set_title(f"Mel Spectrogram of: {spec_title}")
         # ax.colorbar(format='%+02.0f dB')
 
     if not title:
         title = get_file_name_from(log_Ss)
-    print(f"\nsaving to {title}")
-    fig.savefig(f"{title}.png", format="png")
 
+    fig.suptitle(title)
+
+    if save:
+        print(f"\nsaving to {yel}{title}{res}")
+        fig.savefig(f"{title}.png", format="png")
     if show:
         fig.show()
 
@@ -228,14 +262,14 @@ class Codec:
         return self.encode(X)
 
     def decode(self, X):
-        return self.encode(X)
+        return self.decode(X)
 
 
 def build_codec(name, config):
     codecs = {
         "audio": Codec([lambda a, b: load_audio(a, b, keep_channel=True)], [], config=config),
-        "mel": Codec([load_audio, audio_to_mel_spec], [mel_to_audio], config=config),
-        "mel_image": Codec([load_mel], [mel_to_audio], config=config),
+        "mel": Codec([load_audio, audio_to_mel_spec], [feature_to_audio], config=config),
+        "mel_image": Codec([load_mel], [feature_to_audio], config=config),
     }
     return codecs[name]
 

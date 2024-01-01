@@ -3,7 +3,15 @@ from pathlib import Path
 import dotenv
 import numpy as np
 
-# import wandb
+
+from colorama import Style, Fore
+
+red = Style.BRIGHT + Fore.RED
+blu = Style.BRIGHT + Fore.BLUE
+grn = Style.BRIGHT + Fore.GREEN
+mgt = Style.BRIGHT + Fore.MAGENTA
+yel = Style.BRIGHT + Fore.YELLOW
+res = Style.RESET_ALL
 
 WANDB_PROJECT_NAME = "Remixer"
 
