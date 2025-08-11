@@ -1,4 +1,4 @@
-"""Module containing submodules for each dataset. """
+"""Module containing submodules for each dataset."""
 
 # from . import *
 from .utils import *
