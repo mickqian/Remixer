@@ -1,4 +1,5 @@
 """Experiment-running framework."""
+
 from dataclasses import asdict
 
 import accelerate
@@ -40,7 +41,7 @@ def build_accelerator(config, accelerate_state=None, use_wandb=True, project_nam
             log_with="wandb",
             # log_with="wandb",
             # fsdp_plugin=plugin,
-            kwargs_handlers=[kwargs]
+            kwargs_handlers=[kwargs],
             # logging_dir=os.path.join(OUTPUT_DIR, "logs")
         )
     else:
@@ -49,7 +50,7 @@ def build_accelerator(config, accelerate_state=None, use_wandb=True, project_nam
             mixed_precision=config.mixed_precision,
             gradient_accumulation_steps=config.gradient_accumulation_steps,
             # fsdp_plugin=plugin,
-            kwargs_handlers=[kwargs]
+            kwargs_handlers=[kwargs],
             # logging_dir=os.path.join(OUTPUT_DIR, "logs")
         )
     if accelerate_state:

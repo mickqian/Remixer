@@ -1,7 +1,7 @@
 repos:
   # a set of useful Python-based pre-commit hooks
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.1.0
+    rev: v6.0.0
     hooks:
       # list of definitions and supported hooks: https://pre-commit.com/hooks.html
       - id: trailing-whitespace # removes any whitespace at the ends of lines
@@ -17,7 +17,7 @@ repos:
 
   # black python autoformatting
   - repo: https://github.com/psf/black
-    rev: 22.3.0
+    rev: 25.1.0
     hooks:
       - id: black
     # additional configuration of black in pyproject.toml
@@ -25,6 +25,6 @@ repos:
 
   # shellcheck-py for linting shell files
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.8.0.4
+    rev: v0.11.0.1
     hooks:
       - id: shellcheck
